@@ -72,10 +72,11 @@ def find_all_maximum_assignments(antibodies=None, csv_path=None, max_results=100
     
     Returns:
         dict with:
-            - max_count: maximum number of antibodies that can be assigned
+            - max_assigned: maximum number of antibodies that can be assigned
             - total_antibodies: total number of antibodies
             - num_combinations: total number of distinct maximum assignments
-            - combinations: list of assignment dicts (up to max_results)
+            - combinations: list of solution dicts (up to max_results)
+            - truncated: whether the solution list was truncated
     """
     import os
     
@@ -94,116 +95,124 @@ def find_all_maximum_assignments(antibodies=None, csv_path=None, max_results=100
                 if fl not in antibodies[ab]:
                     antibodies[ab].append(fl)
 
-    ab_list = list(antibodies.keys())
-    total = len(ab_list)
+    # Deduplicate fluorophores while preserving order
+    options = {ab: list(dict.fromkeys(fls)) for ab, fls in antibodies.items()}
+    original_order = list(antibodies)
+
+    # Sort by most-constrained-first for efficient search
+    search_order = sorted(
+        original_order,
+        key=lambda ab: (len(options[ab]), original_order.index(ab))
+    )
 
     # Find maximum matching size using greedy
-    def greedy_max():
-        fluor_to_antibody = {}
-        def find_assignment(antibody, visited):
-            for fluor in antibodies[antibody]:
-                if fluor in visited:
-                    continue
-                visited.add(fluor)
-                if fluor not in fluor_to_antibody or find_assignment(fluor_to_antibody[fluor], visited):
-                    fluor_to_antibody[fluor] = antibody
-                    return True
-            return False
-        for antibody in ab_list:
-            find_assignment(antibody, set())
-        return len(fluor_to_antibody)
+    fluor_to_antibody = {}
 
-    max_count = greedy_max()
+    def find_assignment(antibody, visited):
+        for fluor in options[antibody]:
+            if fluor in visited:
+                continue
+            visited.add(fluor)
+            if fluor not in fluor_to_antibody or find_assignment(fluor_to_antibody[fluor], visited):
+                fluor_to_antibody[fluor] = antibody
+                return True
+        return False
+
+    for ab in search_order:
+        find_assignment(ab, set())
+
+    max_count = len(fluor_to_antibody)
 
     # Collect all fluorophores
     all_fluors = set()
-    for fl_list in antibodies.values():
+    for fl_list in options.values():
         all_fluors.update(fl_list)
     all_fluors = sorted(all_fluors)
     fluor_idx = {fl: i for i, fl in enumerate(all_fluors)}
 
-    # Precompute antibody fluor masks
-    ab_masks = []
-    for ab in ab_list:
-        mask = 0
-        for fl in antibodies[ab]:
-            mask |= (1 << fluor_idx[fl])
-        ab_masks.append(mask)
-
-    # Memoized counting: count ways to assign k antibodies from idx..total-1
-    # using only fluorophores not in used_mask
+    # Fast counting using bitmask DP (original order, no sorting)
     from functools import lru_cache
+
+    ab_list_for_count = list(options.keys())
+    count_total = len(ab_list_for_count)
+    count_masks = []
+    for ab in ab_list_for_count:
+        mask = 0
+        for fl in options[ab]:
+            mask |= (1 << fluor_idx[fl])
+        count_masks.append(mask)
 
     @lru_cache(maxsize=None)
     def count_ways(idx, used_mask, target):
-        """Count ways to assign exactly 'target' antibodies from idx onwards."""
         if target == 0:
             return 1
-        remaining = total - idx
+        remaining = count_total - idx
         if remaining < target:
             return 0
-        if idx == total:
+        if idx == count_total:
             return 0
-        
         total_count = 0
-        # Try assigning antibody[idx] to each available fluor
-        mask = ab_masks[idx]
+        mask = count_masks[idx]
         available = mask & ~used_mask
         while available:
-            fl_bit = available & (-available)  # lowest set bit
+            fl_bit = available & (-available)
             total_count += count_ways(idx + 1, used_mask | fl_bit, target - 1)
-            available &= available - 1  # remove lowest set bit
-        
-        # Try skipping antibody[idx]
+            available &= available - 1
         total_count += count_ways(idx + 1, used_mask, target)
-        
         return total_count
 
     total_combinations = count_ways(0, 0, max_count)
 
-    # Enumerate combinations
+    # Enumerate all maximum assignments via backtracking (sorted order)
     combinations = []
+    truncated = False
 
-    def enumerate_ways(idx, assigned, used_mask, remaining):
-        nonlocal total_combinations
-        if len(combinations) >= max_results:
-            return
-        
-        if remaining == 0:
-            combinations.append(dict(assigned))
-            return
-        
-        if idx == total:
-            return
-        
-        # Prune: check if enough ways remain
-        ways = count_ways(idx, used_mask, remaining)
-        if ways == 0:
+    def enumerate_ways(idx, assigned, used_fluors):
+        nonlocal truncated
+        remaining = len(search_order) - idx
+
+        if len(assigned) + remaining < max_count:
             return
 
-        # Try assigning antibody[idx] to each available fluor
-        mask = ab_masks[idx]
-        available = mask & ~used_mask
-        while available:
-            fl_bit = available & (-available)
-            fl = all_fluors[fl_bit.bit_length() - 1]
-            assigned[ab_list[idx]] = fl
-            enumerate_ways(idx + 1, assigned, used_mask | fl_bit, remaining - 1)
-            del assigned[ab_list[idx]]
+        if len(assigned) == max_count:
+            assignments = {ab: assigned[ab] for ab in original_order if ab in assigned}
+            unused = sorted(fl for fl in all_fluors if fl not in used_fluors)
+            unassigned = [ab for ab in original_order if ab not in assigned]
+            combinations.append({
+                'assignments': assignments,
+                'unassigned': unassigned,
+                'unused_fluorophores': unused
+            })
             if len(combinations) >= max_results:
-                return
-            available &= available - 1
-        
-        # Try skipping antibody[idx]
-        enumerate_ways(idx + 1, assigned, used_mask, remaining)
+                truncated = True
+            return
 
-    enumerate_ways(0, {}, 0, max_count)
+        if idx == len(search_order):
+            return
+
+        ab = search_order[idx]
+
+        for fluor in options[ab]:
+            if fluor in used_fluors:
+                continue
+            assigned[ab] = fluor
+            used_fluors.add(fluor)
+            enumerate_ways(idx + 1, assigned, used_fluors)
+            del assigned[ab]
+            used_fluors.remove(fluor)
+            if truncated:
+                return
+
+        enumerate_ways(idx + 1, assigned, used_fluors)
+
+    enumerate_ways(0, {}, set())
 
     return {
-        'max_count': max_count,
-        'total_antibodies': total,
+        'max_assigned': max_count,
+        'total_antibodies': len(antibodies),
         'num_combinations': total_combinations,
-        'combinations': combinations[:max_results]
+        'combinations': combinations[:max_results],
+        'truncated': truncated
     }
 
 
@@ -213,14 +222,9 @@ csv_path = os.path.join(os.path.dirname(__file__), "Data", "antibody_fluorophore
 
 result = find_all_maximum_assignments(csv_path=csv_path)
 
-print(f"Maximum assignments: {result['max_count']}/{result['total_antibodies']}")
-num = result['num_combinations']
-if num > 999999:
-    print(f"Total distinct combinations: >999,999")
-else:
-    print(f"Total distinct combinations: {num:,}")
-print(f"Combinations shown: {len(result['combinations'])}")
+print(f"Maximum panel size: {result['max_assigned']}/{result['total_antibodies']}")
+print(f"Total distinct combinations: {result['num_combinations']:,}")
 
-print("\n--- Combination 1 ---")
-for ab, fl in result['combinations'][0].items():
-    print(f"{ab:10} -> {fl}")
+print("\n--- Example Combination ---")
+for ab, fluor in result['combinations'][0]['assignments'].items():
+    print(f"{ab:12} -> {fluor}")
