@@ -302,27 +302,57 @@ def calculate_panel_complexity(fluorophores, sim_df, sim_names, det_map=None):
     
     sim_names_normalized = {normalize_fluorophore(n): n for n in sim_names}
     
-    # Map fluorophores to similarity matrix names
-    mapped = []
+    # Map fluorophores to similarity matrix names, keeping originals for unmapped
+    mapped_names = []
+    unmapped = []
     for fl in fluorophores:
         mapped_fl = fluor_to_similarity_name(fl, sim_names_normalized, det_map)
         if mapped_fl and mapped_fl in sim_df.columns:
-            mapped.append(mapped_fl)
+            mapped_names.append(mapped_fl)
         else:
-            mapped.append(fl)
+            mapped_names.append(fl)
+            unmapped.append(fl)
     
-    # Filter to only fluorophores that exist in similarity matrix
-    valid_fluors = [f for f in mapped if f in sim_df.columns]
-    valid_fluors = list(dict.fromkeys(valid_fluors))  # deduplicate preserving order
+    # Deduplicate preserving order
+    seen = set()
+    unique_fluors = []
+    for fl in mapped_names:
+        if fl not in seen:
+            seen.add(fl)
+            unique_fluors.append(fl)
     
-    if len(valid_fluors) < 2:
+    # Track which fluorophores are unmapped (not in similarity matrix)
+    unmapped_fluors = set()
+    for fl in unique_fluors:
+        if fl not in sim_df.columns:
+            unmapped_fluors.add(fl)
+    
+    if len(unique_fluors) < 2:
         return {
             'n_fluorophores': len(fluorophores),
             'matrix_complexity': 1.0
         }
     
-    # Extract submatrix
-    S = sim_df.loc[valid_fluors, valid_fluors].to_numpy(dtype=float)
+    # Build full similarity matrix including unmapped fluorophores
+    all_fluors = unique_fluors
+    n = len(all_fluors)
+    
+    # Create index mapping
+    fluor_idx = {fl: i for i, fl in enumerate(all_fluors)}
+    
+    # Initialize similarity matrix with zeros
+    S = np.zeros((n, n))
+    
+    # Fill in known similarities for fluorophores in the similarity matrix
+    for i, fl1 in enumerate(all_fluors):
+        if fl1 in sim_df.columns:
+            for j, fl2 in enumerate(all_fluors):
+                if fl2 in sim_df.columns:
+                    S[i, j] = sim_df.loc[fl1, fl2]
+    
+    # Ensure symmetry
+    S = (S + S.T) / 2
+    np.fill_diagonal(S, 1.0)
     
     if not np.all(np.isfinite(S)):
         return {'matrix_complexity': np.inf}
@@ -336,13 +366,15 @@ def calculate_panel_complexity(fluorophores, sim_df, sim_names, det_map=None):
         matrix_complexity = np.sqrt(eigenvalues.max() / eigenvalues.min())
     
     return {
-        'n_fluorophores': len(valid_fluors),
-        'matrix_complexity': matrix_complexity
+        'n_fluorophores': len(fluorophores),
+        'matrix_complexity': matrix_complexity,
+        'unmapped_fluors': unmapped_fluors
     }
 
 
 def rank_combinations_by_complexity(assignment_result, sim_df, sim_names, det_map, top_n=3):
     """Rank combinations by spectral complexity (lowest first)."""
+    sim_names_normalized = {normalize_fluorophore(n): n for n in sim_names}
     ranked = []
     
     for solution in assignment_result['combinations']:
@@ -355,6 +387,9 @@ def rank_combinations_by_complexity(assignment_result, sim_df, sim_names, det_ma
             'fluorophores': fluorophores,
             **complexity
         })
+    
+    ranked.sort(key=lambda x: x['matrix_complexity'])
+    return ranked[:top_n], sim_names_normalized, det_map
     
     ranked.sort(key=lambda x: x['matrix_complexity'])
     return ranked[:top_n]
@@ -376,10 +411,26 @@ sim_df, sim_names = load_similarity_matrix(sim_path)
 det_map = load_detector_map(det_path)
 
 # Rank by complexity
-top_panels = rank_combinations_by_complexity(result, sim_df, sim_names, det_map, top_n=3)
+top_panels, sim_names_normalized, det_map = rank_combinations_by_complexity(result, sim_df, sim_names, det_map, top_n=3)
+
+def is_unmapped(fluor, sim_df, sim_names_normalized, det_map):
+    norm = normalize_fluorophore(fluor)
+    if norm in sim_names_normalized:
+        return False
+    if det_map:
+        for det, fl_list in det_map.items():
+            for f in fl_list:
+                if normalize_fluorophore(f) == norm:
+                    for candidate in fl_list:
+                        candidate_norm = normalize_fluorophore(candidate)
+                        if candidate_norm in sim_names_normalized:
+                            return False
+                    break
+    return True
 
 print("\n--- Top 3 Panels (Lowest Complexity) ---")
 for i, panel in enumerate(top_panels, 1):
     print(f"\nRank {i} - Matrix CI: {panel['matrix_complexity']:.4f}")
     for ab, fluor in panel['assignments'].items():
-        print(f"  {ab:12} -> {fluor}")
+        tag = " [unmapped]" if is_unmapped(fluor, sim_df, sim_names_normalized, det_map) else ""
+        print(f"  {ab:12} -> {fluor}{tag}")
