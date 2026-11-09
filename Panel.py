@@ -216,15 +216,170 @@ def find_all_maximum_assignments(antibodies=None, csv_path=None, max_results=100
     }
 
 
+def normalize_fluorophore(name):
+    """Normalize fluorophore name to match similarity matrix."""
+    name = name.strip()
+    name = name.replace('/', '-')
+    name = name.replace(' ', '')
+    name = name.lower()
+    return name
+
+
+def fluor_to_similarity_name(name, sim_names_normalized, det_map=None):
+    """Try to find a matching name in the similarity matrix."""
+    normalized = normalize_fluorophore(name)
+    if normalized in sim_names_normalized:
+        return sim_names_normalized[normalized]
+    
+    # Try detector-based substitution
+    if det_map:
+        for det, fl_list in det_map.items():
+            for f in fl_list:
+                if normalize_fluorophore(f) == normalized:
+                    # Find a substitute from same detector that's in sim matrix
+                    for candidate in fl_list:
+                        candidate_norm = normalize_fluorophore(candidate)
+                        if candidate_norm in sim_names_normalized:
+                            return sim_names_normalized[candidate_norm]
+                    break
+    
+    return None
+
+
+def load_similarity_matrix(sim_path):
+    """Load similarity matrix and return DataFrame and name mapping."""
+    import pandas as pd
+    df = pd.read_csv(sim_path)
+    df = df.set_index('Unnamed: 0')
+    sim_names = df.index.tolist()
+    sim_names_normalized = {normalize_fluorophore(n): n for n in sim_names}
+    return df, sim_names
+
+
+def load_detector_map(det_path):
+    """Load detector-fluorophore mapping."""
+    import pandas as pd
+    df = pd.read_csv(det_path)
+    det_map = {}
+    for _, row in df.iterrows():
+        det = row['Detector']
+        fl = row['Fluorophore']
+        if det not in det_map:
+            det_map[det] = []
+        det_map[det].append(fl)
+    return det_map
+
+
+def find_fluor_substitute(fluor, sim_names_normalized, det_map):
+    """Find a substitute fluorophore that exists in the similarity matrix."""
+    normalized = normalize_fluorophore(fluor)
+    
+    # Direct match
+    if normalized in sim_names_normalized:
+        return sim_names_normalized[normalized]
+    
+    # Try partial matching
+    for norm_name, orig_name in sim_names_normalized.items():
+        if normalized in norm_name or norm_name in normalized:
+            return orig_name
+    
+    # Try detector-based substitution
+    for det, fl_list in det_map.items():
+        for f in fl_list:
+            if normalize_fluorophore(f) == normalized:
+                # Find a substitute from same detector that's in sim matrix
+                for candidate in fl_list:
+                    if candidate in sim_names_normalized:
+                        return candidate
+                break
+    
+    return fluor
+
+
+def calculate_panel_complexity(fluorophores, sim_df, sim_names, det_map=None):
+    """Calculate spectral complexity metrics for a panel."""
+    import numpy as np
+    
+    sim_names_normalized = {normalize_fluorophore(n): n for n in sim_names}
+    
+    # Map fluorophores to similarity matrix names
+    mapped = []
+    for fl in fluorophores:
+        mapped_fl = fluor_to_similarity_name(fl, sim_names_normalized, det_map)
+        if mapped_fl and mapped_fl in sim_df.columns:
+            mapped.append(mapped_fl)
+        else:
+            mapped.append(fl)
+    
+    # Filter to only fluorophores that exist in similarity matrix
+    valid_fluors = [f for f in mapped if f in sim_df.columns]
+    valid_fluors = list(dict.fromkeys(valid_fluors))  # deduplicate preserving order
+    
+    if len(valid_fluors) < 2:
+        return {
+            'n_fluorophores': len(fluorophores),
+            'matrix_complexity': 1.0
+        }
+    
+    # Extract submatrix
+    S = sim_df.loc[valid_fluors, valid_fluors].to_numpy(dtype=float)
+    
+    if not np.all(np.isfinite(S)):
+        return {'matrix_complexity': np.inf}
+    
+    # Matrix condition index
+    eigenvalues = np.linalg.eigvalsh(S)
+    
+    if eigenvalues.min() <= 0:
+        matrix_complexity = np.inf
+    else:
+        matrix_complexity = np.sqrt(eigenvalues.max() / eigenvalues.min())
+    
+    return {
+        'n_fluorophores': len(valid_fluors),
+        'matrix_complexity': matrix_complexity
+    }
+
+
+def rank_combinations_by_complexity(assignment_result, sim_df, sim_names, det_map, top_n=3):
+    """Rank combinations by spectral complexity (lowest first)."""
+    ranked = []
+    
+    for solution in assignment_result['combinations']:
+        fluorophores = list(solution['assignments'].values())
+        complexity = calculate_panel_complexity(fluorophores, sim_df, sim_names, det_map)
+        
+        ranked.append({
+            'assignments': solution['assignments'],
+            'unassigned': solution['unassigned'],
+            'fluorophores': fluorophores,
+            **complexity
+        })
+    
+    ranked.sort(key=lambda x: x['matrix_complexity'])
+    return ranked[:top_n]
+
+
 # Example usage with CSV
 import os
 csv_path = os.path.join(os.path.dirname(__file__), "Data", "antibody_fluorophores.csv")
+sim_path = os.path.join(os.path.dirname(__file__), "Data", "Similarity_Index.csv")
+det_path = os.path.join(os.path.dirname(__file__), "Data", "Detector_Fluorophores.csv")
 
 result = find_all_maximum_assignments(csv_path=csv_path)
 
 print(f"Maximum panel size: {result['max_assigned']}/{result['total_antibodies']}")
 print(f"Total distinct combinations: {result['num_combinations']:,}")
 
-print("\n--- Example Combination ---")
-for ab, fluor in result['combinations'][0]['assignments'].items():
-    print(f"{ab:12} -> {fluor}")
+# Load similarity data
+sim_df, sim_names = load_similarity_matrix(sim_path)
+det_map = load_detector_map(det_path)
+
+# Rank by complexity
+top_panels = rank_combinations_by_complexity(result, sim_df, sim_names, det_map, top_n=3)
+
+print("\n--- Top 3 Panels (Lowest Complexity) ---")
+for i, panel in enumerate(top_panels, 1):
+    print(f"\nRank {i} - Matrix CI: {panel['matrix_complexity']:.4f}")
+    for ab, fluor in panel['assignments'].items():
+        print(f"  {ab:12} -> {fluor}")
