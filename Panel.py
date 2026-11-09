@@ -397,9 +397,9 @@ def rank_combinations_by_complexity(assignment_result, sim_df, sim_names, det_ma
 
 # Example usage with CSV
 import os
-csv_path = os.path.join(os.path.dirname(__file__), "Data", "antibody_fluorophores.csv")
-sim_path = os.path.join(os.path.dirname(__file__), "Data", "Similarity_Index.csv")
-det_path = os.path.join(os.path.dirname(__file__), "Data", "Detector_Fluorophores.csv")
+csv_path = os.path.join(os.path.dirname(__file__), "Data", "input.csv")
+sim_path = os.path.join(os.path.dirname(__file__), "constants", "Similarity_Index.csv")
+det_path = os.path.join(os.path.dirname(__file__), "constants", "Detector_Fluorophores.csv")
 
 result = find_all_maximum_assignments(csv_path=csv_path)
 

@@ -1,0 +1,206 @@
+﻿Detector,Fluorophore
+B1,BB515
+B1,CellTrace Calcein Green AM
+B1,cFluor B515
+B1,Live-or-Dye 488/515
+B1,Vio 515
+B10,PerCP-eFluor 710
+B10,PerCP-Vio 700
+B12,BB755
+B14,BB790
+B2,Alexa Fluor 488
+B2,CellTracker Green CMFDA
+B2,cFluor B532
+B2,CFSE
+B2,FITC
+B2,GFP
+B2,Ghost Dye Blue 516
+B2,Kiravia Blue 520
+B2,Zombie Green
+B3,Alexa Fluor 532
+B3,cFluor B548
+B3,eFluor 520
+B3,Fixable Viability Stain 520
+B3,LIVE/DEAD Green
+B3,Live-or-Dye 510/550
+B3,MitoTracker Green
+B3,Northern Lights 493
+B3,Spark Blue 550
+B3,SYTOX Green
+B3,Venus
+B3,VioBright FITC
+B3,YFP
+B6,BB630
+B6,MitoSOX Red
+B7,BB660
+B8,PerCP
+B9,BB700
+B9,cFluor B690
+B9,PerCP-Cy5.5
+R1,APC
+R1,CellTrace Far Red
+R1,cFluor R659
+R1,ViaKrome 638
+R2,Alexa Fluor 647
+R2,cFluor R668
+R2,eFluor 660
+R2,Fixable Viability Stain 660
+R2,Janelia Fluor 646
+R2,LIVE/DEAD Far Red
+R2,Live-or-Dye 640/662
+R2,Northern Lights 637
+R2,SYTOX Deep Red
+R2,Vio 667
+R2,VioBright 667
+R4,Alexa Fluor 680
+R4,Alexa Fluor 700
+R4,APC-Alexa Fluor 700
+R4,APC-R700
+R4,cFluor R720
+R4,Fixable Viability Stain 700
+R4,Ghost Dye Red 710
+R4,R718
+R4,redFluor 710
+R5,ViaKrome 808
+R6,Zombie NIR
+R7,Alexa Fluor 750
+R7,APC/Fire 750
+R7,APC-Alexa Fluor 750
+R7,APC-Cy7
+R7,APC-eFluor 780
+R7,APC-H7
+R7,APC-Vio 770
+R7,cFluor R780
+R7,eFluor 780
+R7,Fixable Viability Stain 780
+R7,Ghost Dye Red 780
+R7,LIVE/DEAD NIR
+R7,Live-or-Dye 750/777
+R8,APC/Fire 810
+R8,cFluor R840
+UV,450
+UV10,BUV615
+UV11,BUV661
+UV14,BUV737
+UV16,BUV805
+UV2,BUV395
+UV6,Alexa Fluor 350
+UV6,eFluor 455
+UV6,Ghost Dye
+UV6,LIVE/DEAD Blue
+UV7,BUV496
+UV7,DAPI
+UV7,Zombie UV
+UV9,BUV563
+V1,BV421
+V10,BV605
+V10,cFluor V610
+V10,Fixable Viability Stain 575V
+V10,Qdot 605
+V10,Super Bright 600
+V10,Zombie Yellow
+V11,BV650
+V11,Qdot 655
+V11,Super Bright 645
+V13,BV711
+V13,Qdot 705
+V13,Super Bright 702
+V14,BV750
+V15,BV785
+V15,Qdot 800
+V15,Super Bright 780
+V2,Alexa Fluor 405
+V2,cFluor V420
+V2,Super Bright 436
+V2,ViaKrome 405
+V2,Zombie Violet
+V3,BFP
+V3,CellTrace Violet
+V3,cFluor V450
+V3,eFluor 450
+V3,Fixable Viability Stain 450
+V3,Ghost Dye Violet 450
+V3,LIVE/DEAD Violet
+V3,Pacific Blue
+V3,V450
+V3,VioBlue
+V3,violetFluor 450
+V5,AmCyan
+V5,BV480
+V5,mCerulean3
+V5,violetFluor 500
+V6,CFP
+V6,Sapphire
+V7,Amethyst Orange
+V7,BV510
+V7,eFluor 506
+V7,Fixable Viability Stain 510
+V7,Ghost Dye Violet 510 & 540
+V7,Krome Orange
+V7,LIVE/DEAD Aqua
+V7,OC515
+V7,V500
+V7,VioGreen
+V7,Zombie Aqua
+V8,BV570
+V8,cFluor V547
+V8,LIVE/DEAD Yellow
+V8,Live-or-Dye 405/545
+V8,LSSmOrange
+V8,Pacific Orange
+YG1,Alexa Fluor 546
+YG1,Alexa Fluor 555
+YG1,BYG584
+YG1,CellTrace Yellow
+YG1,cFluor BYG575
+YG1,cFluor YG584
+YG1,Cy3
+YG1,DsRed
+YG1,eFluor 570
+YG1,Fixable Viability Stain 570
+YG1,Live-or-Dye 568/583
+YG1,MitoTracker Orange
+YG1,mOrange
+YG1,Northern Lights 557
+YG1,PE
+YG1,RFP
+YG1,Spark YG 570
+YG1,SYTOX Orange
+YG1,TAMRA
+YG1,TMRE
+YG1,TMRM
+YG1,ViaKrome 561
+YG2,mApple
+YG3,Alexa Fluor 568
+YG3,Alexa Fluor 594
+YG3,CellTrace BODIPY
+YG3,cFluor BYG610
+YG3,cFluor YG610
+YG3,ECD
+YG3,eFluor 615
+YG3,LIVE/DEAD Red
+YG3,Live-or-Dye 594/614
+YG3,mCherry
+YG3,PE-CF594
+YG3,PE-Dazzle 594
+YG3,PE-eFluor 610
+YG3,PE-Texas Red
+YG3,PE-Vio 615
+YG3,Zombie Red
+YG4,7-AAD
+YG4,Fixable Viability Stain 620
+YG4,mKate
+YG4,PE/Fire 640
+YG4,PE-Alexa Fluor 610
+YG4,PI
+YG5,cFluor BYG667
+YG5,PE-Cy5
+YG6,cFluor BYG680
+YG7,cFluor BYG710
+YG7,PE/Fire 700
+YG7,PE-Alexa Fluor 700
+YG7,PE-Cy5.5
+YG9,cFluor BYG781
+YG9,PE-Cy7
+YG9,PE-Vio 770
+
