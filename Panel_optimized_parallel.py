@@ -24,7 +24,7 @@ import csv
 import os
 
 # CPU budget: edit this value to cap the number of worker processes.
-MAX_WORKERS = 8 #os.cpu_count() or 1
+MAX_WORKERS = 4 #os.cpu_count() or 1
 
 # Avoid BLAS/OpenMP thread oversubscription inside multiple worker processes.
 for _thread_var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
