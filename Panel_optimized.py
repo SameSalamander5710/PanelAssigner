@@ -1,21 +1,25 @@
 """
-Exact, set-based optimizer for antibody/fluorophore panels.
+Exact, set-based optimizer for antibody/fluorophore panels (branch and bound).
 
 The objective (spectral matrix complexity) depends only on the selected
-fluorophore set, not on which antibody receives each fluorophore. This
-implementation therefore enumerates each feasible fluorophore set once,
-rather than enumerating every antibody assignment.
+fluorophore set, not on which antibody receives each fluorophore, so each
+feasible fluorophore set is scored once.
 
-Exactness:
-- Finds the maximum assignable panel size using bipartite matching.
-- Searches every distinct fluorophore set of that size that can be matched
-  to distinct antibodies.
-- Evaluates every such set and returns the globally best top_n sets.
-- No random sampling, heuristic cutoff, or result truncation is used.
+Exactness and pruning:
+- The maximum panel size comes from bipartite matching.
+- Every fluorophore set of that size that can be matched to distinct
+  antibodies is a candidate; the globally best top_n sets are returned.
+- The complexity sqrt(lambda_max / lambda_min) of a set is computed from a
+  principal submatrix of one global similarity matrix. By Cauchy interlacing,
+  adding a fluorophore can never lower it. A partial set that is already
+  worse than the current n-th best therefore cannot lead to a top_n panel,
+  and its whole branch is skipped. This is exact: no heuristic cut-off, no
+  sampling; ties are resolved exactly as in an exhaustive search.
+- A small tolerance (1e-9 relative) keeps floating-point noise from ever
+  discarding a branch that could still tie for a top_n place.
 
-The search is still combinatorial in the worst case. This removes duplicate
-assignment work and repeated pandas/matrix setup, but cannot make an
-exponential optimization problem polynomial-time.
+`search_subtree` and `make_search_tasks` are public so the same search can be
+split across several workers (see the PyScript page's worker.py).
 """
 
 from __future__ import annotations
@@ -209,6 +213,203 @@ def _complexity_for_set(
     return float(np.sqrt(eigenvalues[-1] / smallest))
 
 
+INF = float("inf")
+_RTOL = 1e-9
+_ATOL = 1e-12
+
+
+def _worse_than(complexity: float, limit: float) -> bool:
+    """True if `complexity` is provably worse than `limit` (with tolerance)."""
+    return limit != INF and complexity > limit * (1.0 + _RTOL) + _ATOL
+
+
+def prepare_search(
+    antibodies: Dict[str, List[str]],
+    sim_df: pd.DataFrame,
+    sim_names: Optional[Sequence[str]],
+    det_map: Optional[Dict[str, List[str]]],
+    top_n: int,
+) -> Optional[dict]:
+    """Build the read-only search data. Returns None if nothing is assignable."""
+    if top_n < 1:
+        raise ValueError("top_n must be at least 1")
+    options = {a: list(dict.fromkeys(fs)) for a, fs in antibodies.items()}
+    original_order = list(options)
+
+    antibodies_by_fluor: Dict[str, List[str]] = {}
+    for antibody, fluors in options.items():
+        for fluor in fluors:
+            antibodies_by_fluor.setdefault(fluor, []).append(antibody)
+    all_fluors = sorted(antibodies_by_fluor)
+
+    max_count = len(_maximum_matching(all_fluors, antibodies_by_fluor))
+    if max_count == 0:
+        return None
+
+    if sim_names is None:
+        sim_names = list(sim_df.index)
+    base, mapped_index, substitutions, unmapped = _prepare_similarity(
+        sim_df, sim_names, all_fluors, det_map
+    )
+    return {
+        "all_fluors": all_fluors, "max_count": max_count,
+        "antibodies_by_fluor": antibodies_by_fluor,
+        "original_order": original_order, "base": base,
+        "mapped_index": mapped_index, "substitutions": substitutions,
+        "unmapped": unmapped, "top_n": top_n,
+    }
+
+
+def seed_bound(data: dict) -> float:
+    """
+    Cheap upper bound on the top_n-th best complexity.
+
+    Builds one panel greedily (feasible sets form a matroid, so a greedy panel
+    always reaches full size), then scores all single-fluorophore swaps. The
+    top_n-th best of those real, feasible panels bounds the true top_n-th
+    best. Returns inf if fewer than top_n panels were found.
+    """
+    afb, fl = data["antibodies_by_fluor"], data["all_fluors"]
+    k, top_n = data["max_count"], data["top_n"]
+    base, mi = data["base"], data["mapped_index"]
+
+    def feasible(items):
+        return len(_maximum_matching(items, afb)) == len(items)
+
+    chosen: List[str] = []
+    while len(chosen) < k:
+        pick, pick_c = None, INF
+        for f in fl:
+            if f in chosen or not feasible(chosen + [f]):
+                continue
+            c = _complexity_for_set(chosen + [f], base, mi)
+            if pick is None or c < pick_c:
+                pick, pick_c = f, c
+        chosen.append(pick)
+
+    found = {frozenset(chosen): _complexity_for_set(chosen, base, mi)}
+    for pos in range(k):
+        rest = chosen[:pos] + chosen[pos + 1:]
+        for f in fl:
+            if f in chosen:
+                continue
+            cand = rest + [f]
+            key = frozenset(cand)
+            if key not in found and feasible(cand):
+                found[key] = _complexity_for_set(cand, base, mi)
+    values = sorted(found.values())
+    return values[top_n - 1] if len(values) >= top_n else INF
+
+
+def next_bound(bound: float, known: Iterable[float], top_n: int) -> float:
+    """Tighten `bound` using complexities of panels already found."""
+    values = sorted(known)
+    if len(values) >= top_n and values[top_n - 1] < bound:
+        return values[top_n - 1]
+    return bound
+
+
+def make_search_tasks(data: dict, target: int = 32) -> list:
+    """Disjoint feasible-prefix subtrees, most promising (lowest prefix score) first."""
+    all_fluors, afb, k = data["all_fluors"], data["antibodies_by_fluor"], data["max_count"]
+    frontier = [(0, ())]
+    for _ in range(min(k, 4)):
+        expanded = []
+        for start, prefix in frontier:
+            needed = k - len(prefix)
+            if needed <= 0 or len(all_fluors) - start < needed:
+                continue
+            for i in range(start, len(all_fluors) - needed + 1):
+                candidate = prefix + (all_fluors[i],)
+                if len(_maximum_matching(candidate, afb)) == len(candidate):
+                    expanded.append((i + 1, candidate))
+        if not expanded:
+            break
+        frontier = expanded
+        if len(frontier) >= target:
+            break
+    base, mi = data["base"], data["mapped_index"]
+    return sorted(
+        frontier,
+        key=lambda t: (_complexity_for_set(t[1], base, mi) if t[1] else 0.0, t[1]),
+    )
+
+
+def search_subtree(data: dict, task: tuple, bound: float = INF):
+    """
+    Search one prefix subtree. `bound` is a known upper limit on the top_n-th
+    best complexity (inf = none). Returns (best, evaluated, pruned) where best
+    is a list of (complexity, fluorophore tuple, panel dict), at most top_n.
+    """
+    start, prefix = task
+    all_fluors, k = data["all_fluors"], data["max_count"]
+    afb, original_order = data["antibodies_by_fluor"], data["original_order"]
+    base, mi = data["base"], data["mapped_index"]
+    substitutions, unmapped, top_n = data["substitutions"], data["unmapped"], data["top_n"]
+    best: list = []
+    evaluated = 0
+    pruned = 0
+
+    def limit() -> float:
+        return min(bound, best[-1][0]) if len(best) >= top_n else bound
+
+    def leaf(chosen, complexity, matching) -> None:
+        nonlocal evaluated
+        evaluated += 1
+        fluor_set = tuple(chosen)
+        if len(best) >= top_n and (complexity, fluor_set) >= (best[-1][0], best[-1][1]):
+            return
+        by_antibody = {matching[f]: f for f in matching}
+        assignments = {a: by_antibody[a] for a in original_order if a in by_antibody}
+        used = set(fluor_set)
+        panel = {
+            "assignments": assignments,
+            "unassigned": [a for a in original_order if a not in assignments],
+            "unused_fluorophores": [f for f in all_fluors if f not in used],
+            "fluorophores": list(fluor_set),
+            "matrix_complexity": complexity,
+            "unmapped_fluors": set(f for f in fluor_set if f in unmapped),
+            "substitutions": {f: substitutions[f] for f in fluor_set if f in substitutions},
+        }
+        best.append((complexity, fluor_set, panel))
+        best.sort(key=lambda item: (item[0], item[1]))
+        if len(best) > top_n:
+            best.pop()
+
+    def search(next_start, chosen) -> None:
+        nonlocal pruned
+        needed = k - len(chosen)
+        if len(all_fluors) - next_start < needed:
+            return
+        for i in range(next_start, len(all_fluors) - needed + 1):
+            chosen.append(all_fluors[i])
+            matching = _maximum_matching(chosen, afb)
+            if len(matching) == len(chosen):
+                complexity = _complexity_for_set(chosen, base, mi)
+                if _worse_than(complexity, limit()):
+                    pruned += 1  # complexity never decreases when adding more
+                elif needed == 1:
+                    leaf(chosen, complexity, matching)
+                else:
+                    search(i + 1, chosen)
+            chosen.pop()
+
+    chosen = list(prefix)
+    if not chosen:
+        search(start, chosen)
+    else:
+        matching = _maximum_matching(chosen, afb)
+        if len(matching) == len(chosen):
+            complexity = _complexity_for_set(chosen, base, mi)
+            if _worse_than(complexity, limit()):
+                pruned += 1
+            elif len(chosen) == k:
+                leaf(chosen, complexity, matching)
+            else:
+                search(start, chosen)
+    return best, evaluated, pruned
+
+
 def find_best_panels(
     antibodies: Optional[Dict[str, List[str]]] = None,
     csv_path: Optional[str] = None,
@@ -220,54 +421,17 @@ def find_best_panels(
     top_n: int = 3,
 ) -> dict:
     """
-    Find globally best spectral panels among all maximum-size feasible panels.
+    Find the exact global top_n panels among all maximum-size feasible panels.
 
-    Unlike find_all_maximum_assignments(), this searches unique fluorophore
-    sets, not all antibody/fluorophore permutations. `num_combinations` in the
-    returned dictionary means the number of distinct feasible fluorophore
-    sets evaluated (not the number of antibody assignments).
-
-    Every feasible set of maximum panel size is evaluated, so top_n is exact.
+    `num_unique_fluor_sets` counts the full sets actually scored; branches
+    proven worse than the current top_n are skipped (`num_pruned_branches`).
     """
     if antibodies is None:
         if not csv_path:
             raise ValueError("Provide antibodies or csv_path")
         antibodies = load_antibodies(csv_path)
-
     if top_n < 1:
         raise ValueError("top_n must be at least 1")
-
-    options = {
-        antibody: list(dict.fromkeys(fluors))
-        for antibody, fluors in antibodies.items()
-    }
-    original_order = list(options)
-
-    # Reverse graph: each fluorophore -> antibodies that can use it.
-    antibodies_by_fluor: Dict[str, List[str]] = {}
-    for antibody, fluors in options.items():
-        for fluor in fluors:
-            antibodies_by_fluor.setdefault(fluor, []).append(antibody)
-
-    all_fluors = sorted(antibodies_by_fluor)
-
-    # Maximum cardinality matching establishes the required panel size.
-    maximum_matching = _maximum_matching(all_fluors, antibodies_by_fluor)
-    max_count = len(maximum_matching)
-
-    if max_count == 0:
-        return {
-            "max_assigned": 0,
-            "total_antibodies": len(options),
-            "num_combinations": 1,
-            "num_unique_fluor_sets": 1,
-            "combinations": [{
-                "assignments": {},
-                "unassigned": original_order[:],
-                "unused_fluorophores": all_fluors[:],
-            }],
-            "truncated": False,
-        }
 
     if sim_df is None:
         if not sim_path:
@@ -275,104 +439,47 @@ def find_best_panels(
         sim_df, loaded_names = load_similarity_matrix(sim_path)
         if sim_names is None:
             sim_names = loaded_names
-    elif sim_names is None:
-        sim_names = list(sim_df.index)
-
     if det_map is None and det_path:
         det_map = load_detector_map(det_path)
 
-    base, mapped_index, substitutions, unmapped = _prepare_similarity(
-        sim_df, sim_names, all_fluors, det_map
-    )
+    data = prepare_search(antibodies, sim_df, sim_names, det_map, top_n)
+    if data is None:
+        original_order = list(antibodies)
+        return {
+            "max_assigned": 0, "total_antibodies": len(antibodies),
+            "num_combinations": 1, "num_unique_fluor_sets": 1,
+            "num_pruned_branches": 0,
+            "combinations": [{
+                "assignments": {}, "unassigned": original_order[:],
+                "unused_fluorophores": sorted({f for fs in antibodies.values() for f in fs}),
+            }],
+            "truncated": False,
+        }
 
-    # Keep only the best top_n records; never retain all candidate panels.
-    best: List[Tuple[float, Tuple[str, ...], dict]] = []
-    evaluated = 0
+    bound = seed_bound(data)
+    results, known = [], []
+    evaluated = pruned = 0
+    for task in make_search_tasks(data):
+        best, ev, pr = search_subtree(data, task, bound)
+        results.extend(best)
+        evaluated += ev
+        pruned += pr
+        known.extend(item[0] for item in best)
+        bound = next_bound(bound, known, top_n)
 
-    # DFS over sorted fluorophore indices generates each set exactly once.
-    # A prefix is pruned if its fluorophores cannot be matched to distinct
-    # antibodies. Such a prefix can never become a feasible full panel.
-    def search(start: int, chosen: List[str]) -> None:
-        nonlocal evaluated
-
-        needed = max_count - len(chosen)
-        if needed == 0:
-            matching = _maximum_matching(chosen, antibodies_by_fluor)
-            if len(matching) != max_count:
-                return
-
-            evaluated += 1
-            fluor_set = tuple(chosen)
-            complexity = _complexity_for_set(
-                fluor_set, base, mapped_index
-            )
-
-            assignments = {
-                matching[fluor]: fluor for fluor in matching
-            }
-            assignments = {
-                antibody: assignments[antibody]
-                for antibody in original_order
-                if antibody in assignments
-            }
-            unassigned = [
-                antibody for antibody in original_order
-                if antibody not in assignments
-            ]
-            used = set(fluor_set)
-            solution = {
-                "assignments": assignments,
-                "unassigned": unassigned,
-                "unused_fluorophores": [
-                    fluor for fluor in all_fluors if fluor not in used
-                ],
-                "fluorophores": list(fluor_set),
-                "matrix_complexity": complexity,
-                "unmapped_fluors": set(f for f in fluor_set if f in unmapped),
-                "substitutions": {
-                    f: substitutions[f] for f in fluor_set if f in substitutions
-                },
-            }
-
-            best.append((complexity, fluor_set, solution))
-            best.sort(key=lambda item: (item[0], item[1]))
-            if len(best) > top_n:
-                best.pop()
-            return
-
-        # Not enough remaining fluorophores to complete the set.
-        if len(all_fluors) - start < needed:
-            return
-
-        last_start = len(all_fluors) - needed
-        for i in range(start, last_start + 1):
-            fluor = all_fluors[i]
-            chosen.append(fluor)
-
-            # Feasibility of the prefix is necessary for feasibility of any
-            # extension. This pruning does not discard any valid optimum.
-            if len(_maximum_matching(chosen, antibodies_by_fluor)) == len(chosen):
-                search(i + 1, chosen)
-
-            chosen.pop()
-
-    search(0, [])
-
-    combinations = []
-    for _, _, panel in best:
-        combinations.append({
-            "assignments": panel["assignments"],
-            "unassigned": panel["unassigned"],
-            "unused_fluorophores": panel["unused_fluorophores"],
-        })
-
+    results.sort(key=lambda item: (item[0], item[1]))
+    panels = [item[2] for item in results[:top_n]]
     return {
-        "max_assigned": max_count,
-        "total_antibodies": len(options),
+        "max_assigned": data["max_count"],
+        "total_antibodies": len(data["original_order"]),
         "num_combinations": evaluated,
         "num_unique_fluor_sets": evaluated,
-        "combinations": combinations,
-        "ranked_panels": [item[2] for item in best],
+        "num_pruned_branches": pruned,
+        "combinations": [{
+            "assignments": p["assignments"], "unassigned": p["unassigned"],
+            "unused_fluorophores": p["unused_fluorophores"],
+        } for p in panels],
+        "ranked_panels": panels,
         "truncated": False,
     }
 
@@ -404,8 +511,8 @@ if __name__ == "__main__":
         f"{result['max_assigned']}/{result['total_antibodies']}"
     )
     print(
-        f"Unique feasible fluorophore sets evaluated: "
-        f"{result['num_unique_fluor_sets']:,}"
+        f"Fluorophore sets scored: {result['num_unique_fluor_sets']:,} "
+        f"(branches pruned: {result['num_pruned_branches']:,})"
     )
     print(f"Time: {elapsed:.2f}s")
     print("\n--- Globally Best Panels (Lowest Complexity) ---")
