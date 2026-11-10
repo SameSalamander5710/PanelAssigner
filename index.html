@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PanelAssigner</title>
+  <link rel="stylesheet" href="https://pyscript.net/releases/2026.7.3/core.css">
+  <script type="module" src="https://pyscript.net/releases/2026.7.3/core.js"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 52rem; margin: 2rem auto; padding: 0 1rem; }
+    textarea { width: 100%; box-sizing: border-box; font-family: ui-monospace, monospace; }
+    label { display: block; margin-top: 1rem; font-weight: 600; }
+    button { margin-top: .75rem; padding: .5rem 1.25rem; font-size: 1rem; }
+    #topn { width: 4rem; }
+  </style>
+</head>
+<body>
+  <h1>PanelAssigner</h1>
+  <label for="input">Paste Antibody / Fluorophore pairs (two columns, e.g. straight from Excel)</label>
+  <textarea id="input" rows="12" placeholder="Antibody&#9;Fluorophore&#10;CD3&#9;BV421&#10;CD3&#9;FITC"></textarea>
+  <div>
+    <button id="run" disabled>Compute</button>
+    Top <input id="topn" type="number" value="3" min="1"> panels
+  </div>
+  <p id="status">Loading 4 Python workers (first visit takes a while)...</p>
+  <label for="output">Results (tab-separated, paste into Excel)</label>
+  <textarea id="output" rows="14" readonly></textarea>
+
+  <!-- Main thread: tiny MicroPython, only handles the UI -->
+  <script type="mpy" src="./main.py"></script>
+  <!-- Heavy compute: 4 identical Pyodide workers (one per CPU thread). To use
+       a different number, add/remove a line here AND edit NAMES in main.py. -->
+  <script type="py" src="./worker.py" config="./pyscript.toml" worker name="w0"></script>
+  <script type="py" src="./worker.py" config="./pyscript.toml" worker name="w1"></script>
+  <script type="py" src="./worker.py" config="./pyscript.toml" worker name="w2"></script>
+  <script type="py" src="./worker.py" config="./pyscript.toml" worker name="w3"></script>
+</body>
+</html>

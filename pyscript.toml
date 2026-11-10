@@ -1,0 +1,6 @@
+packages = ["numpy", "pandas"]
+
+[files]
+"./Panel_optimized.py" = "./Panel_optimized.py"
+"./constants/Similarity_Index.csv" = "./constants/Similarity_Index.csv"
+"./constants/Detector_Fluorophores.csv" = "./constants/Detector_Fluorophores.csv"
