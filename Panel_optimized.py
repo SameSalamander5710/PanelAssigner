@@ -530,3 +530,5 @@ if __name__ == "__main__":
                 tags.append("[unmapped]")
             suffix = " " + " ".join(tags) if tags else ""
             print(f"  {antibody:12} -> {fluor}{suffix}")
+        for antibody in panel["unassigned"]:
+            print(f"  {antibody:12} -> [unassigned]")
