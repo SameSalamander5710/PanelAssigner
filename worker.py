@@ -88,7 +88,7 @@ def finalize(results_json):
         '<th class="num">#</th><th>Antibody</th>',
     ]
     for i in range(1, len(best) + 1):
-        parts.append(f"<th>Set {i}</th>")
+        parts.append(f"<th>Panel {i}</th>")
     parts.append("</tr></thead><tbody>")
 
     for row_no, ab in enumerate(STATE["data"]["original_order"], 1):

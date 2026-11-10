@@ -7,15 +7,15 @@
   <link rel="stylesheet" href="https://pyscript.net/releases/2026.7.3/core.css">
   <script type="module" src="https://pyscript.net/releases/2026.7.3/core.js"></script>
   <style>
-    :root { --box-height: 43rem; }
-    body { font-family: system-ui, sans-serif; max-width: 56.2rem; margin: 2rem auto; padding: 0 1rem; }
+    :root { --box-height: 43rem; --results-width: 29.3125rem; }
+    body { font-family: system-ui, sans-serif; max-width: calc(18.2rem + 10rem + var(--results-width) + 2rem); margin: 2rem auto; padding: 0 1rem; }
     textarea, #output { width: 100%; box-sizing: border-box; font-family: ui-monospace, monospace; }
     label { display: block; margin-top: 1rem; font-weight: 600; }
     button { padding: .5rem 1.25rem; font-size: 1rem; }
     #topn { width: 4rem; }
     .layout {
       display: grid;
-      grid-template-columns: 35fr 10rem 50fr;
+      grid-template-columns: 18.2rem 10rem var(--results-width);
       grid-template-areas:
         "inlabel  .        outlabel"
         "inbox    controls outbox";
@@ -25,7 +25,7 @@
     .input-label { grid-area: inlabel; }
     .output-label { grid-area: outlabel; margin-top: 1rem; font-weight: 600; }
     #input { grid-area: inbox; height: var(--box-height); resize: vertical; }
-    .output-panel { grid-area: outbox; display: flex; flex-direction: column; }
+    .output-panel { grid-area: outbox; display: flex; flex-direction: column; min-width: 0; }
     #output {
       height: var(--box-height);
       margin: 0;
@@ -34,6 +34,19 @@
       border: 1px solid #767676;
       background: #fff;
     }
+    .output-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-top: .5rem;
+    }
+    #copy {
+      flex: none;
+      padding: .3rem .75rem;
+      font-size: .85rem;
+    }
+    #copy:disabled { opacity: .5; cursor: not-allowed; }
     .results-table {
       border-collapse: collapse;
       width: 100%;
@@ -41,6 +54,7 @@
     }
     .results-table th,
     .results-table td {
+      box-sizing: border-box;
       border: 1px solid #d0d0d0;
       padding: 2px 6px;
       text-align: left;
@@ -65,7 +79,6 @@
       display: flex;
       flex-wrap: wrap;
       gap: .35rem 1rem;
-      margin-top: .5rem;
       font-size: .85rem;
     }
     .legend .item { display: inline-flex; align-items: center; gap: .35rem; }
@@ -87,7 +100,7 @@
     .controls button { width: 100%; }
     .topn-line { white-space: nowrap; }
     #status { margin: 0; font-size: .85rem; text-align: center; }
-    @media (max-width: 800px) {
+    @media (max-width: 1000px) {
       .layout {
         grid-template-columns: 1fr;
         grid-template-areas: "inlabel" "inbox" "controls" "outlabel" "outbox";
@@ -110,13 +123,149 @@
     <div class="output-label">Results</div>
     <div class="output-panel">
       <div id="output"></div>
-      <div class="legend">
-        <span class="item"><span class="swatch assigned"></span>Assigned</span>
-        <span class="item"><span class="swatch unmapped"></span>Unmapped</span>
-        <span class="item"><span class="swatch unassigned"></span>Unassigned</span>
+      <div class="output-footer">
+        <div class="legend">
+          <span class="item"><span class="swatch assigned"></span>Assigned</span>
+          <span class="item"><span class="swatch unmapped"></span>Unmapped</span>
+          <span class="item"><span class="swatch unassigned"></span>Unassigned</span>
+        </div>
+        <button id="copy" type="button" disabled>Copy</button>
       </div>
     </div>
   </div>
+
+  <script>
+    (function () {
+      const out = document.getElementById('output');
+      const copyBtn = document.getElementById('copy');
+      const MIN_NUM_WIDTH = 20;
+      const MIN_ANTIBODY_WIDTH = 72;
+      const MIN_PANEL_WIDTH = 94;
+      const CELL_PADDING = 14;
+
+      function makeMeasurer(style) {
+        const span = document.createElement('span');
+        span.style.position = 'absolute';
+        span.style.left = '-9999px';
+        span.style.top = '0';
+        span.style.visibility = 'hidden';
+        span.style.whiteSpace = 'pre';
+        span.style.fontFamily = style.fontFamily;
+        span.style.fontSize = style.fontSize;
+        span.style.fontWeight = style.fontWeight;
+        document.body.appendChild(span);
+        return {
+          width: function (text) {
+            span.textContent = text;
+            return span.getBoundingClientRect().width;
+          },
+          remove: function () { span.remove(); }
+        };
+      }
+
+      function layoutResults() {
+        const table = out.querySelector('table');
+        copyBtn.disabled = !table;
+        if (!table) return;
+
+        const measurer = makeMeasurer(getComputedStyle(table));
+        const header = table.tHead.rows[0];
+        const panelCount = header.cells.length - 2;
+        let maxNum = measurer.width('#');
+        let maxAntibody = measurer.width('Antibody');
+        let maxPanel = 0;
+
+        Array.prototype.forEach.call(table.querySelectorAll('tbody tr'), function (row) {
+          maxNum = Math.max(maxNum, measurer.width(row.cells[0].textContent));
+          maxAntibody = Math.max(maxAntibody, measurer.width(row.cells[1].textContent));
+          for (let i = 2; i < row.cells.length; i += 1) {
+            maxPanel = Math.max(maxPanel, measurer.width(row.cells[i].textContent));
+          }
+        });
+
+        const ciRow = table.querySelector('.ci-row');
+        if (ciRow) {
+          for (let i = 2; i < ciRow.cells.length; i += 1) {
+            maxPanel = Math.max(maxPanel, measurer.width(ciRow.cells[i].textContent));
+          }
+        }
+        for (let i = 2; i < header.cells.length; i += 1) {
+          maxPanel = Math.max(maxPanel, measurer.width(header.cells[i].textContent));
+        }
+        measurer.remove();
+
+        const numWidth = Math.max(MIN_NUM_WIDTH, Math.ceil(maxNum) + CELL_PADDING);
+        const antibodyWidth = Math.max(MIN_ANTIBODY_WIDTH, Math.ceil(maxAntibody) + CELL_PADDING);
+        const panelWidth = Math.max(MIN_PANEL_WIDTH, Math.ceil(maxPanel) + CELL_PADDING);
+
+        header.cells[0].style.width = numWidth + 'px';
+        header.cells[1].style.width = antibodyWidth + 'px';
+        for (let i = 2; i < header.cells.length; i += 1) {
+          header.cells[i].style.width = panelWidth + 'px';
+        }
+
+        table.style.tableLayout = 'fixed';
+        table.style.width = (numWidth + antibodyWidth + panelCount * panelWidth) + 'px';
+
+        const fourPanelWidth = numWidth + antibodyWidth + 4 * panelWidth + 4;
+        document.documentElement.style.setProperty('--results-width', fourPanelWidth + 'px');
+      }
+
+      function tableToTSV(table) {
+        return Array.prototype.map.call(table.rows, function (row) {
+          const cells = [];
+          Array.prototype.forEach.call(row.cells, function (cell) {
+            cells.push(cell.textContent.replace(/\t/g, ' '));
+            for (let i = 1; i < cell.colSpan; i += 1) {
+              cells.push('');
+            }
+          });
+          return cells.join('\t');
+        }).join('\n');
+      }
+
+      async function copyResults() {
+        const table = out.querySelector('table');
+        if (!table) return;
+        const tsv = tableToTSV(table);
+        const html = table.outerHTML;
+        let copied = false;
+        try {
+          if (navigator.clipboard && typeof ClipboardItem !== 'undefined') {
+            await navigator.clipboard.write([
+              new ClipboardItem({
+                'text/plain': new Blob([tsv], { type: 'text/plain' }),
+                'text/html': new Blob([html], { type: 'text/html' })
+              })
+            ]);
+            copied = true;
+          }
+        } catch (error) {}
+        if (!copied) {
+          const area = document.createElement('textarea');
+          area.value = tsv;
+          area.style.position = 'fixed';
+          area.style.left = '-9999px';
+          document.body.appendChild(area);
+          area.select();
+          try {
+            copied = document.execCommand('copy');
+          } catch (error) {}
+          document.body.removeChild(area);
+        }
+        if (copied) {
+          const label = copyBtn.textContent;
+          copyBtn.textContent = 'Copied!';
+          setTimeout(function () { copyBtn.textContent = label; }, 1200);
+        }
+      }
+
+      new MutationObserver(layoutResults).observe(out, { childList: true });
+      copyBtn.addEventListener('click', copyResults);
+      window.addEventListener('resize', layoutResults);
+      layoutResults();
+    })();
+  </script>
 
   <!-- Main thread: tiny MicroPython, only handles the UI -->
   <script type="mpy" src="./main.py"></script>
