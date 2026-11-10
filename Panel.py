@@ -302,60 +302,51 @@ def calculate_panel_complexity(fluorophores, sim_df, sim_names, det_map=None):
     
     sim_names_normalized = {normalize_fluorophore(n): n for n in sim_names}
     
-    # Map fluorophores to similarity matrix names, keeping originals for unmapped
+    # Map fluorophores to similarity matrix names
     mapped_names = []
-    unmapped = []
+    unmapped_fluors = set()
     for fl in fluorophores:
         mapped_fl = fluor_to_similarity_name(fl, sim_names_normalized, det_map)
         if mapped_fl and mapped_fl in sim_df.columns:
             mapped_names.append(mapped_fl)
         else:
             mapped_names.append(fl)
-            unmapped.append(fl)
-    
-    # Deduplicate preserving order
-    seen = set()
-    unique_fluors = []
-    for fl in mapped_names:
-        if fl not in seen:
-            seen.add(fl)
-            unique_fluors.append(fl)
-    
-    # Track which fluorophores are unmapped (not in similarity matrix)
-    unmapped_fluors = set()
-    for fl in unique_fluors:
-        if fl not in sim_df.columns:
             unmapped_fluors.add(fl)
     
-    if len(unique_fluors) < 2:
+    n = len(mapped_names)
+    
+    if n < 2:
         return {
             'n_fluorophores': len(fluorophores),
-            'matrix_complexity': 1.0
+            'matrix_complexity': 1.0,
+            'unmapped_fluors': unmapped_fluors
         }
     
-    # Build full similarity matrix including unmapped fluorophores
-    all_fluors = unique_fluors
-    n = len(all_fluors)
-    
-    # Create index mapping
-    fluor_idx = {fl: i for i, fl in enumerate(all_fluors)}
-    
-    # Initialize similarity matrix with zeros
+    # Build full similarity matrix for all fluorophores
     S = np.zeros((n, n))
     
-    # Fill in known similarities for fluorophores in the similarity matrix
-    for i, fl1 in enumerate(all_fluors):
-        if fl1 in sim_df.columns:
-            for j, fl2 in enumerate(all_fluors):
-                if fl2 in sim_df.columns:
-                    S[i, j] = sim_df.loc[fl1, fl2]
+    for i in range(n):
+        for j in range(n):
+            fl1 = mapped_names[i]
+            fl2 = mapped_names[j]
+            
+            if fl1 == fl2:
+                S[i, j] = 1.0
+            elif fl1 in sim_df.columns and fl2 in sim_df.columns:
+                S[i, j] = sim_df.loc[fl1, fl2]
+            elif fl1 in sim_df.columns and fl2 not in sim_df.columns:
+                S[i, j] = 0.0
+            elif fl1 not in sim_df.columns and fl2 in sim_df.columns:
+                S[i, j] = 0.0
+            else:
+                S[i, j] = 0.0
     
     # Ensure symmetry
     S = (S + S.T) / 2
     np.fill_diagonal(S, 1.0)
     
     if not np.all(np.isfinite(S)):
-        return {'matrix_complexity': np.inf}
+        return {'matrix_complexity': np.inf, 'unmapped_fluors': unmapped_fluors}
     
     # Matrix condition index
     eigenvalues = np.linalg.eigvalsh(S)
