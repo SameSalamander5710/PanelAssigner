@@ -226,10 +226,11 @@ def normalize_fluorophore(name):
 
 
 def fluor_to_similarity_name(name, sim_names_normalized, det_map=None):
-    """Try to find a matching name in the similarity matrix."""
+    """Try to find a matching name in the similarity matrix.
+    Returns (mapped_name, is_substituted) tuple."""
     normalized = normalize_fluorophore(name)
     if normalized in sim_names_normalized:
-        return sim_names_normalized[normalized]
+        return sim_names_normalized[normalized], False
     
     # Try detector-based substitution
     if det_map:
@@ -240,10 +241,10 @@ def fluor_to_similarity_name(name, sim_names_normalized, det_map=None):
                     for candidate in fl_list:
                         candidate_norm = normalize_fluorophore(candidate)
                         if candidate_norm in sim_names_normalized:
-                            return sim_names_normalized[candidate_norm]
+                            return sim_names_normalized[candidate_norm], True
                     break
     
-    return None
+    return None, False
 
 
 def load_similarity_matrix(sim_path):
@@ -305,10 +306,13 @@ def calculate_panel_complexity(fluorophores, sim_df, sim_names, det_map=None):
     # Map fluorophores to similarity matrix names
     mapped_names = []
     unmapped_fluors = set()
+    substitutions = {}
     for fl in fluorophores:
-        mapped_fl = fluor_to_similarity_name(fl, sim_names_normalized, det_map)
+        mapped_fl, is_sub = fluor_to_similarity_name(fl, sim_names_normalized, det_map)
         if mapped_fl and mapped_fl in sim_df.columns:
             mapped_names.append(mapped_fl)
+            if is_sub:
+                substitutions[fl] = mapped_fl
         else:
             mapped_names.append(fl)
             unmapped_fluors.add(fl)
@@ -319,7 +323,8 @@ def calculate_panel_complexity(fluorophores, sim_df, sim_names, det_map=None):
         return {
             'n_fluorophores': len(fluorophores),
             'matrix_complexity': 1.0,
-            'unmapped_fluors': unmapped_fluors
+            'unmapped_fluors': unmapped_fluors,
+            'substitutions': substitutions
         }
     
     # Build full similarity matrix for all fluorophores
@@ -346,7 +351,7 @@ def calculate_panel_complexity(fluorophores, sim_df, sim_names, det_map=None):
     np.fill_diagonal(S, 1.0)
     
     if not np.all(np.isfinite(S)):
-        return {'matrix_complexity': np.inf, 'unmapped_fluors': unmapped_fluors}
+        return {'matrix_complexity': np.inf, 'unmapped_fluors': unmapped_fluors, 'substitutions': substitutions}
     
     # Matrix condition index
     eigenvalues = np.linalg.eigvalsh(S)
@@ -359,7 +364,8 @@ def calculate_panel_complexity(fluorophores, sim_df, sim_names, det_map=None):
     return {
         'n_fluorophores': len(fluorophores),
         'matrix_complexity': matrix_complexity,
-        'unmapped_fluors': unmapped_fluors
+        'unmapped_fluors': unmapped_fluors,
+        'substitutions': substitutions
     }
 
 
@@ -404,24 +410,15 @@ det_map = load_detector_map(det_path)
 # Rank by complexity
 top_panels, sim_names_normalized, det_map = rank_combinations_by_complexity(result, sim_df, sim_names, det_map, top_n=3)
 
-def is_unmapped(fluor, sim_df, sim_names_normalized, det_map):
-    norm = normalize_fluorophore(fluor)
-    if norm in sim_names_normalized:
-        return False
-    if det_map:
-        for det, fl_list in det_map.items():
-            for f in fl_list:
-                if normalize_fluorophore(f) == norm:
-                    for candidate in fl_list:
-                        candidate_norm = normalize_fluorophore(candidate)
-                        if candidate_norm in sim_names_normalized:
-                            return False
-                    break
-    return True
-
 print("\n--- Top 3 Panels (Lowest Complexity) ---")
 for i, panel in enumerate(top_panels, 1):
     print(f"\nRank {i} - Matrix CI: {panel['matrix_complexity']:.4f}")
     for ab, fluor in panel['assignments'].items():
-        tag = " [unmapped]" if is_unmapped(fluor, sim_df, sim_names_normalized, det_map) else ""
+        tags = []
+        if fluor in panel.get('substitutions', {}):
+            sub = panel['substitutions'][fluor]
+            tags.append(f"[substituted: {sub}]")
+        if fluor in panel.get('unmapped_fluors', set()):
+            tags.append("[unmapped]")
+        tag = " " + " ".join(tags) if tags else ""
         print(f"  {ab:12} -> {fluor}{tag}")
