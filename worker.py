@@ -80,43 +80,44 @@ def finalize(results_json):
     best.sort(key=lambda x: (x[0], x[1]))
     best = best[: STATE["top_n"]]
 
-    header = ["Rank", "Matrix_CI", "Antibody", "Fluorophore", "Note"]
-    blocks = []
-    for rank, (c, _, panel) in enumerate(best, 1):
-        ci = f"{c:.4f}"
-        block = []
-        for ab, fl in panel["assignments"].items():
-            notes = []
-            if fl in panel["substitutions"]:
-                notes.append("substituted: " + panel["substitutions"][fl])
-            if fl in panel["unmapped_fluors"]:
-                notes.append("unmapped")
-            block.append([str(rank), ci, ab, fl, "; ".join(notes)])
-        for ab in panel["unassigned"]:
-            block.append([str(rank), ci, ab, "", "unassigned"])
-        blocks.append(block)
+    def esc(value):
+        return html_lib.escape(str(value), quote=False)
 
-    def render_tsv(cells):
-        return "\t".join(cells)
+    parts = [
+        '<table class="results-table"><thead><tr>',
+        '<th class="num">#</th><th>Antibody</th>',
+    ]
+    for i in range(1, len(best) + 1):
+        parts.append(f"<th>Set {i}</th>")
+    parts.append("</tr></thead><tbody>")
 
-    def render_html(cells):
-        note = html_lib.escape(cells[4], quote=False)
-        note = f'<span class="tag">{note}</span>' if note else ""
-        return "\t".join([html_lib.escape(v, quote=False) for v in cells[:4]] + [note])
+    for row_no, ab in enumerate(STATE["data"]["original_order"], 1):
+        parts.append(f'<tr><td class="num">{row_no}</td><td>{esc(ab)}</td>')
+        for _, _, panel in best:
+            if ab in panel["assignments"]:
+                fl = panel["assignments"][ab]
+                if fl in panel["unmapped_fluors"]:
+                    cls, title = "unmapped", ' title="unmapped"'
+                else:
+                    cls, title = "assigned", ""
+                    if fl in panel["substitutions"]:
+                        sub = html_lib.escape(panel["substitutions"][fl])
+                        title = f' title="substituted: {sub}"'
+                parts.append(f'<td class="{cls}"{title}>{esc(fl)}</td>')
+            else:
+                parts.append('<td class="unassigned" title="unassigned"></td>')
+        parts.append("</tr>")
 
-    header_tsv = render_tsv(header)
-    header_html = render_tsv(header)
-    tsv = header_tsv + "\n" + "\n\n".join(
-        "\n".join(render_tsv(cells) for cells in block) for block in blocks
-    )
-    html = header_html + "\n" + "\n\n".join(
-        "\n".join(render_html(cells) for cells in block) for block in blocks
-    )
+    parts.append('</tbody><tfoot><tr class="ci-row"><th colspan="2">Matrix_CI</th>')
+    for c, _, _ in best:
+        parts.append(f'<td class="num">{c:.4f}</td>')
+    parts.append("</tr></tfoot></table>")
+
     summary = (
         f"Maximum panel size: {STATE['max_count']}/{STATE['total']}. "
         f"Fluorophore sets scored: {evaluated:,} (branches pruned: {pruned:,})."
     )
-    return json.dumps({"summary": summary, "tsv": tsv, "html": html})
+    return json.dumps({"summary": summary, "html": "".join(parts)})
 
 
 __export__ = ["setup", "search", "finalize"]
