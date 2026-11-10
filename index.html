@@ -7,31 +7,45 @@
   <link rel="stylesheet" href="https://pyscript.net/releases/2026.7.3/core.css">
   <script type="module" src="https://pyscript.net/releases/2026.7.3/core.js"></script>
   <style>
-    :root { --box-height: 43rem; --results-width: 29.3125rem; }
-    body { font-family: system-ui, sans-serif; max-width: calc(18.2rem + 10rem + var(--results-width) + 2rem); margin: 2rem auto; padding: 0 1rem; }
+    :root { --col-width: 18.2rem; }
+    body { font-family: system-ui, sans-serif; max-width: calc(2 * var(--col-width) + 1rem); margin: 2rem auto; padding: 0 1rem; }
     textarea, #output { width: 100%; box-sizing: border-box; font-family: ui-monospace, monospace; }
+    textarea { resize: none; }
     label { display: block; margin-top: 1rem; font-weight: 600; }
     button { padding: .5rem 1.25rem; font-size: 1rem; }
     #topn { width: 4rem; }
-    .layout {
+    .layout { display: flex; flex-direction: column; gap: 1rem; }
+    .inputs {
       display: grid;
-      grid-template-columns: 18.2rem 10rem var(--results-width);
+      grid-template-columns: var(--col-width) var(--col-width);
       grid-template-areas:
-        "inlabel  .        outlabel"
-        "inbox    controls outbox";
-      gap: 1rem;
-      align-items: start;
+        "inlabel  backlabel"
+        "inbox    backbone";
+      gap: 0 1rem;
     }
     .input-label { grid-area: inlabel; }
-    .output-label { grid-area: outlabel; margin-top: 1rem; font-weight: 600; }
-    #input { grid-area: inbox; height: var(--box-height); resize: vertical; }
-    .output-panel { grid-area: outbox; display: flex; flex-direction: column; min-width: 0; }
-    #output {
-      height: var(--box-height);
-      margin: 0;
-      overflow: auto;
-      padding: 0;
+    .backbone-label { grid-area: backlabel; }
+    #input { grid-area: inbox; }
+    #backbone { grid-area: backbone; }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: .5rem .75rem;
+    }
+    .topn-line { white-space: nowrap; }
+    #status { margin: 0; font-size: .85rem; }
+    .output-panel { display: flex; flex-direction: column; min-width: 0; }
+    .output-label { font-weight: 600; }
+    .results-box {
       border: 1px solid #767676;
+      background: #fff;
+      min-width: 0;
+    }
+    #output {
+      margin: 0;
+      overflow-x: auto;
+      padding: 0;
       background: #fff;
     }
     .output-footer {
@@ -39,7 +53,8 @@
       align-items: center;
       justify-content: space-between;
       gap: 1rem;
-      margin-top: .5rem;
+      padding: .5rem;
+      border-top: 1px solid #d0d0d0;
     }
     #copy {
       flex: none;
@@ -88,48 +103,40 @@
       height: 1rem;
       border: 1px solid #999;
     }
-    .controls {
-      grid-area: controls;
-      height: var(--box-height);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: .75rem;
-    }
-    .controls button { width: 100%; }
-    .topn-line { white-space: nowrap; }
-    #status { margin: 0; font-size: .85rem; text-align: center; }
-    @media (max-width: 1000px) {
-      .layout {
+    @media (max-width: 660px) {
+      .inputs {
         grid-template-columns: 1fr;
-        grid-template-areas: "inlabel" "inbox" "controls" "outlabel" "outbox";
+        grid-template-areas: "inlabel" "inbox" "backlabel" "backbone";
       }
-      #input, #output, .controls { height: auto; }
-      #input, #output { min-height: 16rem; }
     }
   </style>
 </head>
 <body>
   <h1>PanelAssigner</h1>
   <div class="layout">
-    <label for="input" class="input-label">Paste Antibody / Fluorophore pairs (two columns, e.g. straight from Excel)</label>
-    <textarea id="input" rows="12" placeholder="Antibody&#9;Fluorophore&#10;CD3&#9;BV421&#10;CD3&#9;FITC"></textarea>
+    <div class="inputs">
+      <label for="input" class="input-label">Antibody-Fluorophore pairs</label>
+      <textarea id="input" rows="15" placeholder="Antibody&#9;Fluorophore&#10;CD3&#9;BV421&#10;CD3&#9;FITC"></textarea>
+      <label for="backbone" class="backbone-label">Fixed Panel Backbone</label>
+      <textarea id="backbone" rows="15" placeholder="Coming soon" readonly></textarea>
+    </div>
     <div class="controls">
       <button id="run" disabled>Compute</button>
       <div class="topn-line">Top <input id="topn" type="number" value="3" min="1"> panels</div>
       <p id="status">Loading 4 Python workers (first visit takes a while)...</p>
     </div>
-    <div class="output-label">Results</div>
     <div class="output-panel">
-      <div id="output"></div>
-      <div class="output-footer">
-        <div class="legend">
-          <span class="item"><span class="swatch assigned"></span>Assigned</span>
-          <span class="item"><span class="swatch unmapped"></span>Unmapped</span>
-          <span class="item"><span class="swatch unassigned"></span>Unassigned</span>
+      <div class="output-label">Results</div>
+      <div class="results-box">
+        <div id="output"></div>
+        <div class="output-footer">
+          <div class="legend">
+            <span class="item"><span class="swatch assigned"></span>Assigned</span>
+            <span class="item"><span class="swatch unmapped"></span>Unmapped</span>
+            <span class="item"><span class="swatch unassigned"></span>Unassigned</span>
+          </div>
+          <button id="copy" type="button" disabled>Copy</button>
         </div>
-        <button id="copy" type="button" disabled>Copy</button>
       </div>
     </div>
   </div>
@@ -185,7 +192,7 @@
 
         const ciRow = table.querySelector('.ci-row');
         if (ciRow) {
-          for (let i = 2; i < ciRow.cells.length; i += 1) {
+          for (let i = 1; i < ciRow.cells.length; i += 1) {
             maxPanel = Math.max(maxPanel, measurer.width(ciRow.cells[i].textContent));
           }
         }
@@ -198,17 +205,23 @@
         const antibodyWidth = Math.max(MIN_ANTIBODY_WIDTH, Math.ceil(maxAntibody) + CELL_PADDING);
         const panelWidth = Math.max(MIN_PANEL_WIDTH, Math.ceil(maxPanel) + CELL_PADDING);
 
+        const naturalWidth = numWidth + antibodyWidth + panelCount * panelWidth;
+        const containerWidth = out.clientWidth;
+        let antibodyColWidth = antibodyWidth;
+        let tableWidth = naturalWidth;
+        if (naturalWidth < containerWidth - 1) {
+          antibodyColWidth += containerWidth - 1 - naturalWidth;
+          tableWidth = containerWidth - 1;
+        }
+
         header.cells[0].style.width = numWidth + 'px';
-        header.cells[1].style.width = antibodyWidth + 'px';
+        header.cells[1].style.width = antibodyColWidth + 'px';
         for (let i = 2; i < header.cells.length; i += 1) {
           header.cells[i].style.width = panelWidth + 'px';
         }
 
         table.style.tableLayout = 'fixed';
-        table.style.width = (numWidth + antibodyWidth + panelCount * panelWidth) + 'px';
-
-        const fourPanelWidth = numWidth + antibodyWidth + 4 * panelWidth + 4;
-        document.documentElement.style.setProperty('--results-width', fourPanelWidth + 'px');
+        table.style.width = tableWidth + 'px';
       }
 
       function tableToTSV(table) {
