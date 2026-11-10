@@ -40,6 +40,10 @@
     #status { margin: 0; font-size: .85rem; }
     .output-panel { display: flex; flex-direction: column; min-width: 0; gap: .625rem 1rem; }
     .output-label { font-weight: 600; }
+    .substitutions { font-size: .85rem; color: #333; }
+    .substitutions:empty { display: none; }
+    .substitutions-heading { font-weight: 600; margin-bottom: .25rem; }
+    .substitution-row { padding: .1rem 0; }
     .results-box {
       border: 1px solid #767676;
       background: #fff;
@@ -89,6 +93,8 @@
     .results-table .ci-row td { background: #f2f2f2; font-weight: 600; }
     .results-table .assigned,
     .legend .assigned { background: #d9f2d9; }
+    .results-table .substituted,
+    .legend .substituted { background: #cfe8ff; }
     .results-table .unmapped,
     .legend .unmapped { background: #fff3bf; }
     .results-table .unassigned,
@@ -138,12 +144,14 @@
         <div class="output-footer">
           <div class="legend">
             <span class="item"><span class="swatch assigned"></span>Assigned</span>
+            <span class="item"><span class="swatch substituted"></span>Substituted</span>
             <span class="item"><span class="swatch unmapped"></span>Unmapped</span>
             <span class="item"><span class="swatch unassigned"></span>Unassigned</span>
           </div>
           <button id="copy" type="button" disabled>Copy</button>
         </div>
       </div>
+      <div id="substitutions" class="substitutions"></div>
     </div>
   </div>
 

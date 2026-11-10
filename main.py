@@ -7,6 +7,7 @@ NAMES = ["w0", "w1", "w2", "w3"]  # must match the <script ... name="..."> tags
 pool = []
 status = document.getElementById("status")
 run_btn = document.getElementById("run")
+subs = document.getElementById("substitutions")
 
 
 async def start():
@@ -47,6 +48,7 @@ async def compute(event):
     run_btn.disabled = True
     out = document.getElementById("output")
     out.innerHTML = ""
+    subs.innerHTML = ""
     status.innerText = "Computing on " + str(len(pool)) + " workers..."
     t0 = time.time()
     state = {"next": 0, "results": [], "known": [], "bound": None, "error": None}
@@ -60,6 +62,7 @@ async def compute(event):
         res = json.loads(await pool[0].finalize("[" + ",".join(state["results"]) + "]"))
         status.innerText = res["summary"] + " Time: " + str(round(time.time() - t0, 1)) + " s."
         out.innerHTML = res["html"]
+        subs.innerHTML = res["substitutions_html"]
     run_btn.disabled = False
 
 

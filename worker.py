@@ -98,11 +98,11 @@ def finalize(results_json):
                 fl = panel["assignments"][ab]
                 if fl in panel["unmapped_fluors"]:
                     cls, title = "unmapped", ' title="unmapped"'
+                elif fl in panel["substitutions"]:
+                    sub = html_lib.escape(panel["substitutions"][fl])
+                    cls, title = "substituted", f' title="substituted: {sub}"'
                 else:
                     cls, title = "assigned", ""
-                    if fl in panel["substitutions"]:
-                        sub = html_lib.escape(panel["substitutions"][fl])
-                        title = f' title="substituted: {sub}"'
                 parts.append(f'<td class="{cls}"{title}>{esc(fl)}</td>')
             else:
                 parts.append('<td class="unassigned" title="unassigned"></td>')
@@ -113,11 +113,28 @@ def finalize(results_json):
         parts.append(f'<td class="num">{c:.4f}</td>')
     parts.append("</tr></tfoot></table>")
 
+    substitutions = sorted({
+        (fluor, substituted)
+        for _, _, panel in best
+        for fluor, substituted in panel["substitutions"].items()
+    })
+    substitution_parts = []
+    if substitutions:
+        substitution_parts.append('<div class="substitutions-heading">Substitutions made for calculations:</div>')
+        for fluor, substituted in substitutions:
+            substitution_parts.append(
+                f'<div class="substitution-row">{esc(fluor)} &rarr; {esc(substituted)}</div>'
+            )
+
     summary = (
         f"Maximum panel size: {STATE['max_count']}/{STATE['total']}. "
         f"Fluorophore sets scored: {evaluated:,} (branches pruned: {pruned:,})."
     )
-    return json.dumps({"summary": summary, "html": "".join(parts)})
+    return json.dumps({
+        "summary": summary,
+        "html": "".join(parts),
+        "substitutions_html": "".join(substitution_parts),
+    })
 
 
 __export__ = ["setup", "search", "finalize"]
