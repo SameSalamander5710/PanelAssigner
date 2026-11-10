@@ -387,9 +387,6 @@ def rank_combinations_by_complexity(assignment_result, sim_df, sim_names, det_ma
     
     ranked.sort(key=lambda x: x['matrix_complexity'])
     return ranked[:top_n], sim_names_normalized, det_map
-    
-    ranked.sort(key=lambda x: x['matrix_complexity'])
-    return ranked[:top_n]
 
 
 # Example usage with CSV
@@ -398,7 +395,7 @@ csv_path = os.path.join(os.path.dirname(__file__), "Data", "input.csv")
 sim_path = os.path.join(os.path.dirname(__file__), "constants", "Similarity_Index.csv")
 det_path = os.path.join(os.path.dirname(__file__), "constants", "Detector_Fluorophores.csv")
 
-result = find_all_maximum_assignments(csv_path=csv_path)
+result = find_all_maximum_assignments(csv_path=csv_path, max_results=100000)
 
 print(f"Maximum panel size: {result['max_assigned']}/{result['total_antibodies']}")
 print(f"Total distinct combinations: {result['num_combinations']:,}")
