@@ -398,11 +398,14 @@ def find_best_panels(
 
 
 if __name__ == "__main__":
+    import time
     base_dir = os.path.dirname(__file__)
     input_path = os.path.join(base_dir, "Data", "input.csv")
     sim_path = os.path.join(base_dir, "constants", "Similarity_Index.csv")
     det_path = os.path.join(base_dir, "constants", "Detector_Fluorophores.csv")
 
+    start = time.time()
+    
     antibodies = load_antibodies(input_path)
     sim_df, sim_names = load_similarity_matrix(sim_path)
     det_map = load_detector_map(det_path)
@@ -417,6 +420,7 @@ if __name__ == "__main__":
         top_n=3,
     )
 
+    elapsed = time.time() - start
     print(
         f"Maximum panel size: "
         f"{result['max_assigned']}/{result['total_antibodies']}"
@@ -425,6 +429,7 @@ if __name__ == "__main__":
         f"Unique feasible fluorophore sets evaluated: "
         f"{result['num_unique_fluor_sets']:,}"
     )
+    print(f"Time: {elapsed:.2f}s")
     print("\n--- Globally Best Panels (Lowest Complexity) ---")
 
     for rank, panel in enumerate(result["ranked_panels"], 1):
