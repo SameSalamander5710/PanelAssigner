@@ -9,6 +9,7 @@
   <style>
     :root { --col-width: 18.2rem; }
     body { font-family: system-ui, sans-serif; max-width: calc(2 * var(--col-width) + 1rem); margin: 2rem auto; padding: 0 1rem; }
+    h1 { margin-bottom: .25rem; }
     textarea, #output { width: 100%; box-sizing: border-box; font-family: ui-monospace, monospace; }
     textarea { resize: none; }
     label { display: block; margin-top: 1rem; font-weight: 600; }
@@ -21,8 +22,10 @@
       grid-template-areas:
         "inlabel  backlabel"
         "inbox    backbone";
-      gap: 0 1rem;
+      gap: .625rem 1rem;
     }
+    .tagline { margin: .25rem 0 0; color: #555; }
+    .config { margin: .5rem 0; color: #555; }
     .input-label { grid-area: inlabel; }
     .backbone-label { grid-area: backlabel; }
     #input { grid-area: inbox; }
@@ -35,7 +38,7 @@
     }
     .topn-line { white-space: nowrap; }
     #status { margin: 0; font-size: .85rem; }
-    .output-panel { display: flex; flex-direction: column; min-width: 0; }
+    .output-panel { display: flex; flex-direction: column; min-width: 0; gap: .625rem 1rem; }
     .output-label { font-weight: 600; }
     .results-box {
       border: 1px solid #767676;
@@ -113,6 +116,9 @@
 </head>
 <body>
   <h1>PanelAssigner</h1>
+  <p class="tagline">Simple optimizer for flow cytometry panel design that assigns fluorophores to antibodies and ranks panel configurations by spectral complexity.</p>
+  <p class="tagline">For more details, see: <a href="https://github.com/SameSalamander5710/PanelAssigner" target="_blank" rel="noopener noreferrer">https://github.com/SameSalamander5710/PanelAssigner</a>.</p>
+  <p class="config">Based on configuration: Cytek Aurora 5L 16UV-16V-14B-10YG-8R</p>
   <div class="layout">
     <div class="inputs">
       <label for="input" class="input-label">Antibody-Fluorophore pairs</label>
