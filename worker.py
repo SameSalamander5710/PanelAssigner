@@ -1,6 +1,7 @@
 """One of several identical PyScript (Pyodide) workers. Each runs in its own
 Web Worker thread; main.py hands out search subtrees to whichever is free."""
 import csv
+import html as html_lib
 import io
 import json
 
@@ -79,23 +80,43 @@ def finalize(results_json):
     best.sort(key=lambda x: (x[0], x[1]))
     best = best[: STATE["top_n"]]
 
-    rows = ["Rank\tMatrix_CI\tAntibody\tFluorophore\tNote"]
+    header = ["Rank", "Matrix_CI", "Antibody", "Fluorophore", "Note"]
+    blocks = []
     for rank, (c, _, panel) in enumerate(best, 1):
         ci = f"{c:.4f}"
+        block = []
         for ab, fl in panel["assignments"].items():
             notes = []
             if fl in panel["substitutions"]:
                 notes.append("substituted: " + panel["substitutions"][fl])
             if fl in panel["unmapped_fluors"]:
                 notes.append("unmapped")
-            rows.append(f"{rank}\t{ci}\t{ab}\t{fl}\t{'; '.join(notes)}")
+            block.append([str(rank), ci, ab, fl, "; ".join(notes)])
         for ab in panel["unassigned"]:
-            rows.append(f"{rank}\t{ci}\t{ab}\t\tunassigned")
+            block.append([str(rank), ci, ab, "", "unassigned"])
+        blocks.append(block)
+
+    def render_tsv(cells):
+        return "\t".join(cells)
+
+    def render_html(cells):
+        note = html_lib.escape(cells[4], quote=False)
+        note = f'<span class="tag">{note}</span>' if note else ""
+        return "\t".join([html_lib.escape(v, quote=False) for v in cells[:4]] + [note])
+
+    header_tsv = render_tsv(header)
+    header_html = render_tsv(header)
+    tsv = header_tsv + "\n" + "\n\n".join(
+        "\n".join(render_tsv(cells) for cells in block) for block in blocks
+    )
+    html = header_html + "\n" + "\n\n".join(
+        "\n".join(render_html(cells) for cells in block) for block in blocks
+    )
     summary = (
         f"Maximum panel size: {STATE['max_count']}/{STATE['total']}. "
         f"Fluorophore sets scored: {evaluated:,} (branches pruned: {pruned:,})."
     )
-    return json.dumps({"summary": summary, "tsv": "\n".join(rows)})
+    return json.dumps({"summary": summary, "tsv": tsv, "html": html})
 
 
 __export__ = ["setup", "search", "finalize"]

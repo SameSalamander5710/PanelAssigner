@@ -46,7 +46,7 @@ async def drive(worker, text, top_n, state):  # top_n is an int here
 async def compute(event):
     run_btn.disabled = True
     out = document.getElementById("output")
-    out.value = ""
+    out.innerHTML = ""
     status.innerText = "Computing on " + str(len(pool)) + " workers..."
     t0 = time.time()
     state = {"next": 0, "results": [], "known": [], "bound": None, "error": None}
@@ -59,7 +59,7 @@ async def compute(event):
     else:
         res = json.loads(await pool[0].finalize("[" + ",".join(state["results"]) + "]"))
         status.innerText = res["summary"] + " Time: " + str(round(time.time() - t0, 1)) + " s."
-        out.value = res["tsv"]
+        out.innerHTML = res["html"]
     run_btn.disabled = False
 
 

@@ -9,7 +9,7 @@
   <style>
     :root { --box-height: 43rem; }
     body { font-family: system-ui, sans-serif; max-width: 56.2rem; margin: 2rem auto; padding: 0 1rem; }
-    textarea { width: 100%; box-sizing: border-box; font-family: ui-monospace, monospace; }
+    textarea, #output { width: 100%; box-sizing: border-box; font-family: ui-monospace, monospace; }
     label { display: block; margin-top: 1rem; font-weight: 600; }
     button { padding: .5rem 1.25rem; font-size: 1rem; }
     #topn { width: 4rem; }
@@ -26,7 +26,20 @@
     .output-label { grid-area: outlabel; }
     #input { grid-area: inbox; }
     #output { grid-area: outbox; }
-    #input, #output { height: var(--box-height); resize: vertical; }
+    #input { height: var(--box-height); resize: vertical; }
+    #output {
+      height: var(--box-height);
+      margin: 0;
+      overflow: auto;
+      white-space: pre-wrap;
+      padding: 2px;
+      border: 1px solid #767676;
+      background: #fff;
+      font-size: 13.3333px;
+      line-height: normal;
+      tab-size: 8;
+    }
+    #output .tag { color: #c00; }
     .controls {
       grid-area: controls;
       height: var(--box-height);
@@ -60,7 +73,7 @@
       <p id="status">Loading 4 Python workers (first visit takes a while)...</p>
     </div>
     <label for="output" class="output-label">Results (tab-separated, paste into Excel)</label>
-    <textarea id="output" rows="14" readonly></textarea>
+    <pre id="output"></pre>
   </div>
 
   <!-- Main thread: tiny MicroPython, only handles the UI -->
