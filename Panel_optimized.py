@@ -60,6 +60,40 @@ def normalize_fluorophore(name: str) -> str:
     return name.strip().replace("/", "-").replace(" ", "").lower()
 
 
+def _normalize_antibody(name: str) -> str:
+    """Normalize antibody names for backbone clash detection."""
+    return " ".join(name.strip().lower().split())
+
+
+def load_backbone(csv_path: str) -> Dict[str, str]:
+    """Read fixed backbone assignments from CSV; the header is optional.
+
+    Each antibody keeps its first assignment. A missing file means no backbone.
+    """
+    if not os.path.exists(csv_path):
+        return {}
+
+    backbone: Dict[str, str] = {}
+    seen_antibodies: set = set()
+    with open(csv_path, "r", newline="", encoding="utf-8-sig") as handle:
+        reader = csv.reader(handle)
+        for row in reader:
+            if len(row) < 2:
+                continue
+            antibody = (row[0] or "").strip()
+            fluor = (row[1] or "").strip()
+            if not antibody or not fluor:
+                continue
+            if antibody.lower() == "antibody" and fluor.lower() == "fluorophore":
+                continue
+            key = _normalize_antibody(antibody)
+            if key in seen_antibodies:
+                continue
+            seen_antibodies.add(key)
+            backbone[antibody] = fluor
+    return backbone
+
+
 def load_similarity_matrix(sim_path: str) -> Tuple[pd.DataFrame, List[str]]:
     """Load the similarity matrix; its first column contains row names."""
     df = pd.read_csv(sim_path)
@@ -223,18 +257,52 @@ def _worse_than(complexity: float, limit: float) -> bool:
     return limit != INF and complexity > limit * (1.0 + _RTOL) + _ATOL
 
 
+def _set_complexity(fluor_set: Sequence[str], data: dict) -> float:
+    """Complexity of the fixed backbone plus a candidate free fluorophore set."""
+    backbone = data.get("backbone_fluors") or []
+    return _complexity_for_set(
+        list(backbone) + list(fluor_set), data["base"], data["mapped_index"]
+    )
+
+
 def prepare_search(
     antibodies: Dict[str, List[str]],
     sim_df: pd.DataFrame,
     sim_names: Optional[Sequence[str]],
     det_map: Optional[Dict[str, List[str]]],
     top_n: int,
+    backbone: Optional[Dict[str, str]] = None,
 ) -> Optional[dict]:
     """Build the read-only search data. Returns None if nothing is assignable."""
     if top_n < 1:
         raise ValueError("top_n must be at least 1")
-    options = {a: list(dict.fromkeys(fs)) for a, fs in antibodies.items()}
-    original_order = list(options)
+
+    backbone = dict(backbone or {})
+    seen_backbone_fluors: Dict[str, str] = {}
+    for antibody, fluor in backbone.items():
+        key = normalize_fluorophore(fluor)
+        if key in seen_backbone_fluors:
+            raise ValueError(
+                f"Backbone fluorophore {fluor!r} is assigned to both "
+                f"{seen_backbone_fluors[key]!r} and {antibody!r}"
+            )
+        seen_backbone_fluors[key] = antibody
+
+    backbone_fluors = list(backbone.values())
+    backbone_fluor_keys = set(seen_backbone_fluors)
+    backbone_antibody_keys = {_normalize_antibody(a) for a in backbone}
+
+    options: Dict[str, List[str]] = {}
+    for antibody, fluors in antibodies.items():
+        if _normalize_antibody(antibody) in backbone_antibody_keys:
+            continue
+        options[antibody] = [
+            fluor for fluor in dict.fromkeys(fluors)
+            if normalize_fluorophore(fluor) not in backbone_fluor_keys
+        ]
+
+    free_original_order = list(options)
+    original_order = list(backbone) + free_original_order
 
     antibodies_by_fluor: Dict[str, List[str]] = {}
     for antibody, fluors in options.items():
@@ -242,19 +310,25 @@ def prepare_search(
             antibodies_by_fluor.setdefault(fluor, []).append(antibody)
     all_fluors = sorted(antibodies_by_fluor)
 
-    max_count = len(_maximum_matching(all_fluors, antibodies_by_fluor))
+    free_max_count = len(_maximum_matching(all_fluors, antibodies_by_fluor))
+    max_count = len(backbone) + free_max_count
     if max_count == 0:
         return None
 
     if sim_names is None:
         sim_names = list(sim_df.index)
     base, mapped_index, substitutions, unmapped = _prepare_similarity(
-        sim_df, sim_names, all_fluors, det_map
+        sim_df, sim_names, list(all_fluors) + backbone_fluors, det_map
     )
     return {
         "all_fluors": all_fluors, "max_count": max_count,
+        "free_max_count": free_max_count,
         "antibodies_by_fluor": antibodies_by_fluor,
-        "original_order": original_order, "base": base,
+        "original_order": original_order,
+        "free_original_order": free_original_order,
+        "backbone_assignments": backbone,
+        "backbone_fluors": backbone_fluors,
+        "base": base,
         "mapped_index": mapped_index, "substitutions": substitutions,
         "unmapped": unmapped, "top_n": top_n,
     }
@@ -270,8 +344,7 @@ def seed_bound(data: dict) -> float:
     best. Returns inf if fewer than top_n panels were found.
     """
     afb, fl = data["antibodies_by_fluor"], data["all_fluors"]
-    k, top_n = data["max_count"], data["top_n"]
-    base, mi = data["base"], data["mapped_index"]
+    k, top_n = data["free_max_count"], data["top_n"]
 
     def feasible(items):
         return len(_maximum_matching(items, afb)) == len(items)
@@ -282,12 +355,12 @@ def seed_bound(data: dict) -> float:
         for f in fl:
             if f in chosen or not feasible(chosen + [f]):
                 continue
-            c = _complexity_for_set(chosen + [f], base, mi)
+            c = _set_complexity(chosen + [f], data)
             if pick is None or c < pick_c:
                 pick, pick_c = f, c
         chosen.append(pick)
 
-    found = {frozenset(chosen): _complexity_for_set(chosen, base, mi)}
+    found = {frozenset(chosen): _set_complexity(chosen, data)}
     for pos in range(k):
         rest = chosen[:pos] + chosen[pos + 1:]
         for f in fl:
@@ -296,7 +369,7 @@ def seed_bound(data: dict) -> float:
             cand = rest + [f]
             key = frozenset(cand)
             if key not in found and feasible(cand):
-                found[key] = _complexity_for_set(cand, base, mi)
+                found[key] = _set_complexity(cand, data)
     values = sorted(found.values())
     return values[top_n - 1] if len(values) >= top_n else INF
 
@@ -311,7 +384,7 @@ def next_bound(bound: float, known: Iterable[float], top_n: int) -> float:
 
 def make_search_tasks(data: dict, target: int = 32) -> list:
     """Disjoint feasible-prefix subtrees, most promising (lowest prefix score) first."""
-    all_fluors, afb, k = data["all_fluors"], data["antibodies_by_fluor"], data["max_count"]
+    all_fluors, afb, k = data["all_fluors"], data["antibodies_by_fluor"], data["free_max_count"]
     frontier = [(0, ())]
     for _ in range(min(k, 4)):
         expanded = []
@@ -328,10 +401,9 @@ def make_search_tasks(data: dict, target: int = 32) -> list:
         frontier = expanded
         if len(frontier) >= target:
             break
-    base, mi = data["base"], data["mapped_index"]
     return sorted(
         frontier,
-        key=lambda t: (_complexity_for_set(t[1], base, mi) if t[1] else 0.0, t[1]),
+        key=lambda t: (_set_complexity(t[1], data) if t[1] else 0.0, t[1]),
     )
 
 
@@ -342,9 +414,12 @@ def search_subtree(data: dict, task: tuple, bound: float = INF):
     is a list of (complexity, fluorophore tuple, panel dict), at most top_n.
     """
     start, prefix = task
-    all_fluors, k = data["all_fluors"], data["max_count"]
-    afb, original_order = data["antibodies_by_fluor"], data["original_order"]
-    base, mi = data["base"], data["mapped_index"]
+    all_fluors, k = data["all_fluors"], data["free_max_count"]
+    afb = data["antibodies_by_fluor"]
+    original_order = data["original_order"]
+    free_original_order = data["free_original_order"]
+    backbone_assignments = data["backbone_assignments"]
+    backbone_fluors = data["backbone_fluors"]
     substitutions, unmapped, top_n = data["substitutions"], data["unmapped"], data["top_n"]
     best: list = []
     evaluated = 0
@@ -360,16 +435,23 @@ def search_subtree(data: dict, task: tuple, bound: float = INF):
         if len(best) >= top_n and (complexity, fluor_set) >= (best[-1][0], best[-1][1]):
             return
         by_antibody = {matching[f]: f for f in matching}
-        assignments = {a: by_antibody[a] for a in original_order if a in by_antibody}
+        assignments = {}
+        for antibody in original_order:
+            if antibody in backbone_assignments:
+                assignments[antibody] = backbone_assignments[antibody]
+            elif antibody in by_antibody:
+                assignments[antibody] = by_antibody[antibody]
+        full_fluors = list(backbone_fluors) + list(fluor_set)
         used = set(fluor_set)
         panel = {
             "assignments": assignments,
-            "unassigned": [a for a in original_order if a not in assignments],
+            "unassigned": [a for a in free_original_order if a not in by_antibody],
             "unused_fluorophores": [f for f in all_fluors if f not in used],
-            "fluorophores": list(fluor_set),
+            "fluorophores": full_fluors,
             "matrix_complexity": complexity,
-            "unmapped_fluors": set(f for f in fluor_set if f in unmapped),
-            "substitutions": {f: substitutions[f] for f in fluor_set if f in substitutions},
+            "unmapped_fluors": set(f for f in full_fluors if f in unmapped),
+            "substitutions": {f: substitutions[f] for f in full_fluors if f in substitutions},
+            "backbone": dict(backbone_assignments),
         }
         best.append((complexity, fluor_set, panel))
         best.sort(key=lambda item: (item[0], item[1]))
@@ -385,7 +467,7 @@ def search_subtree(data: dict, task: tuple, bound: float = INF):
             chosen.append(all_fluors[i])
             matching = _maximum_matching(chosen, afb)
             if len(matching) == len(chosen):
-                complexity = _complexity_for_set(chosen, base, mi)
+                complexity = _set_complexity(chosen, data)
                 if _worse_than(complexity, limit()):
                     pruned += 1  # complexity never decreases when adding more
                 elif needed == 1:
@@ -394,13 +476,17 @@ def search_subtree(data: dict, task: tuple, bound: float = INF):
                     search(i + 1, chosen)
             chosen.pop()
 
+    if k == 0:
+        leaf([], _set_complexity([], data), {})
+        return best, evaluated, pruned
+
     chosen = list(prefix)
     if not chosen:
         search(start, chosen)
     else:
         matching = _maximum_matching(chosen, afb)
         if len(matching) == len(chosen):
-            complexity = _complexity_for_set(chosen, base, mi)
+            complexity = _set_complexity(chosen, data)
             if _worse_than(complexity, limit()):
                 pruned += 1
             elif len(chosen) == k:
@@ -419,12 +505,16 @@ def find_best_panels(
     sim_path: Optional[str] = None,
     det_path: Optional[str] = None,
     top_n: int = 3,
+    backbone: Optional[Dict[str, str]] = None,
 ) -> dict:
     """
     Find the exact global top_n panels among all maximum-size feasible panels.
 
-    `num_unique_fluor_sets` counts the full sets actually scored; branches
-    proven worse than the current top_n are skipped (`num_pruned_branches`).
+    `backbone` is a fixed antibody -> fluorophore mapping that is always part
+    of every panel and takes priority over conflicting input antibodies or
+    fluorophores. `num_unique_fluor_sets` counts the full sets actually scored;
+    branches proven worse than the current top_n are skipped
+    (`num_pruned_branches`).
     """
     if antibodies is None:
         if not csv_path:
@@ -442,7 +532,7 @@ def find_best_panels(
     if det_map is None and det_path:
         det_map = load_detector_map(det_path)
 
-    data = prepare_search(antibodies, sim_df, sim_names, det_map, top_n)
+    data = prepare_search(antibodies, sim_df, sim_names, det_map, top_n, backbone)
     if data is None:
         original_order = list(antibodies)
         return {
@@ -488,12 +578,14 @@ if __name__ == "__main__":
     import time
     base_dir = os.path.dirname(__file__)
     input_path = os.path.join(base_dir, "Data", "input.csv")
+    backbone_path = os.path.join(base_dir, "Data", "input_backbone.csv")
     sim_path = os.path.join(base_dir, "constants", "Similarity_Index.csv")
     det_path = os.path.join(base_dir, "constants", "Detector_Fluorophores.csv")
 
     start = time.time()
     
     antibodies = load_antibodies(input_path)
+    backbone = load_backbone(backbone_path)
     sim_df, sim_names = load_similarity_matrix(sim_path)
     det_map = load_detector_map(det_path)
 
@@ -503,6 +595,7 @@ if __name__ == "__main__":
         sim_names=sim_names,
         det_map=det_map,
         top_n=3,
+        backbone=backbone,
     )
 
     elapsed = time.time() - start
@@ -524,6 +617,8 @@ if __name__ == "__main__":
         )
         for antibody, fluor in panel["assignments"].items():
             tags = []
+            if antibody in panel.get("backbone", {}):
+                tags.append("[backbone]")
             if fluor in panel["substitutions"]:
                 tags.append(f"[substituted: {panel['substitutions'][fluor]}]")
             if fluor in panel["unmapped_fluors"]:

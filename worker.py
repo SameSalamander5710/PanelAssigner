@@ -14,7 +14,7 @@ TARGET_TASKS = 32  # more, smaller subtrees = better load balancing and pruning
 STATE = {}
 
 
-def parse_pasted(text):
+def parse_pasted(text, required=True):
     """Parse pasted Antibody/Fluorophore pairs (tab, comma or semicolon separated)."""
     text = text.strip()
     delim = "\t" if "\t" in text else ("," if "," in text else ";")
@@ -30,21 +30,36 @@ def parse_pasted(text):
         options = antibodies.setdefault(ab, [])
         if fl not in options:
             options.append(fl)
-    if not antibodies:
+    if not antibodies and required:
         raise ValueError("No Antibody/Fluorophore pairs found. Paste two columns.")
     return antibodies
 
 
-def setup(text, top_n=3):
+def parse_backbone(text):
+    """Parse optional fixed backbone pairs; the first row per antibody wins."""
+    text = (text or "").strip()
+    if not text:
+        return {}
+    pairs = parse_pasted(text, required=False)
+    if not pairs:
+        raise ValueError("No Antibody/Fluorophore pairs found in the fixed backbone.")
+    return {ab: fls[0] for ab, fls in pairs.items() if fls}
+
+
+def setup(text, top_n=3, backbone_text=""):
     """Every worker runs this with the same input and builds the same task list."""
     try:
         top_n = int(top_n)
-        antibodies = parse_pasted(text)
-        data = P.prepare_search(antibodies, SIM_DF, SIM_NAMES, DET_MAP, top_n)
+        backbone = parse_backbone(backbone_text)
+        antibodies = parse_pasted(text, required=not backbone)
+        data = P.prepare_search(
+            antibodies, SIM_DF, SIM_NAMES, DET_MAP, top_n, backbone=backbone
+        )
         if data is None:
             raise ValueError("No assignable antibody/fluorophore pairs.")
         tasks = P.make_search_tasks(data, TARGET_TASKS)
-        STATE.update(data=data, tasks=tasks, top_n=top_n, total=len(antibodies),
+        STATE.update(data=data, tasks=tasks, top_n=top_n,
+                     total=len(data["original_order"]),
                      max_count=data["max_count"])
         return json.dumps({"ok": True, "n_tasks": len(tasks),
                            "bound": repr(P.seed_bound(data))})
@@ -96,13 +111,19 @@ def finalize(results_json):
         for _, _, panel in best:
             if ab in panel["assignments"]:
                 fl = panel["assignments"][ab]
+                titles = []
+                if ab in panel.get("backbone", {}):
+                    titles.append("backbone")
                 if fl in panel["unmapped_fluors"]:
-                    cls, title = "unmapped", ' title="unmapped"'
+                    cls = "unmapped"
+                    titles.append("unmapped")
                 elif fl in panel["substitutions"]:
                     sub = html_lib.escape(panel["substitutions"][fl])
-                    cls, title = "substituted", f' title="substituted: {sub}"'
+                    cls = "substituted"
+                    titles.append(f"substituted: {sub}")
                 else:
-                    cls, title = "assigned", ""
+                    cls = "assigned"
+                title = f' title="{"; ".join(titles)}"' if titles else ""
                 parts.append(f'<td class="{cls}"{title}>{esc(fl)}</td>')
             else:
                 parts.append('<td class="unassigned" title="unassigned"></td>')

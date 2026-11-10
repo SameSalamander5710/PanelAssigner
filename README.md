@@ -13,6 +13,7 @@ The tool is hosted online at https://samesalamander5710.github.io/PanelAssigner/
 - Ranks panels by spectral overlap (condition index of the similarity matrix)
 - Automatic fluorophore name matching against a reference similarity matrix
 - Detector-based substitution for fluorophores not in the reference matrix
+- Optional fixed backbone panel that is always included and takes priority in clashes
 - Parallel execution across multiple CPU cores
 
 ## Input Format
@@ -24,6 +25,15 @@ CSV or pasted text with two columns:
 | CD3      | BV421       |
 | CD3      | FITC        |
 | CD4      | APC         |
+
+### Fixed backbone (optional)
+
+A backbone panel can be fixed in place with the same two-column format. Its
+assignments are always included, are used in the complexity calculation, and
+take priority when they clash with an input antibody or fluorophore.
+
+- CLI: save the pairs in `Data/input_backbone.csv` (header optional).
+- Web UI: paste them into the **Fixed Panel Backbone** box.
 
 ## Output
 
