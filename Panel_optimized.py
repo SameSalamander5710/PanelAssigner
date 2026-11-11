@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import csv
 import os
+import re
+from functools import lru_cache
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -58,6 +60,139 @@ def load_antibodies(csv_path: str) -> Dict[str, List[str]]:
 def normalize_fluorophore(name: str) -> str:
     """Normalize fluorophore names for similarity-matrix matching."""
     return name.strip().replace("/", "-").replace(" ", "").lower()
+
+
+_SEPARATORS = r"[\s\-/]"
+_NUMBER = r"\d+(?:\.\d+)?[A-Za-z]?"  # 421, 5.5, 575V, 647N
+_TOKEN_START = r"(?<![A-Za-z0-9])"
+_TOKEN_END = r"(?![A-Za-z0-9])"
+_TRADEMARK_MARKS = re.compile("[\u00ae\u2122\u00a9]")  # (R), (TM), (C) in vendor names
+
+
+def load_fluorophore_aliases(csv_path: str) -> List[Tuple[str, str]]:
+    """Read Alias,Canonical rows; the header is optional.
+
+    Canonical is the common form every spelling is rewritten to. The input,
+    the similarity matrix and the detector map all go through the same rules
+    (see `prepare_search`), so the spelling used in the reference files does
+    not matter. A trailing `{n}` stands for the number, e.g.
+    `AF {n}` -> `Alexa Fluor {n}`.
+    """
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"Alias CSV not found: {csv_path}")
+
+    rules: List[Tuple[str, str]] = []
+    with open(csv_path, "r", newline="", encoding="utf-8-sig") as handle:
+        for line_no, row in enumerate(csv.reader(handle), 1):
+            if len(row) < 2:
+                continue
+            alias, canonical = row[0].strip(), row[1].strip()
+            if not alias or not canonical:
+                continue
+            if alias.lower() == "alias" and canonical.lower() == "canonical":
+                continue
+            problem = _alias_rule_problem(alias, canonical)
+            if problem:
+                raise ValueError(f"{csv_path}, line {line_no}: {problem}")
+            rules.append((alias, canonical))
+    return rules
+
+
+def _alias_rule_problem(alias: str, canonical: str) -> Optional[str]:
+    """Describe what is wrong with an alias rule, or None if it is fine."""
+    if alias.count("{n}") > 1 or canonical.count("{n}") > 1:
+        return "{n} may appear only once"
+    if ("{n}" in alias) != ("{n}" in canonical):
+        return "{n} must appear in both Alias and Canonical, or in neither"
+    if "{n}" in alias and not alias.endswith("{n}"):
+        return "{n} must be at the end of Alias"
+    if not re.sub(_SEPARATORS + "+", "", alias.replace("{n}", "")):
+        return "Alias needs some text besides {n}"
+    return None
+
+
+@lru_cache(maxsize=8)
+def _compile_aliases(rules: Tuple[Tuple[str, str], ...]):
+    """Build one regex for all rules. Returns (regex, {group index: canonical})."""
+    unique: Dict[str, Tuple[str, str]] = {}
+    for alias, canonical in rules:  # first rule wins for a repeated alias
+        key = re.sub(_SEPARATORS + "+", "", alias).lower()
+        unique.setdefault(key, (alias, canonical))
+    # Longest alias first, so the most specific rule wins at a given position.
+    ordered = sorted(unique.items(), key=lambda item: -len(item[0]))
+
+    alternatives, templates = [], {}
+    for i, (_, (alias, canonical)) in enumerate(ordered):
+        has_number = alias.endswith("{n}")
+        words = re.split(_SEPARATORS + "+", (alias[:-3] if has_number else alias).strip())
+        pattern = (_SEPARATORS + "*").join(re.escape(w) for w in words if w)
+        if has_number:
+            pattern += r"[\s\-]*" + f"(?P<n{i}>{_NUMBER})"
+        alternatives.append(f"(?P<r{i}>{_TOKEN_START}{pattern}{_TOKEN_END})")
+        templates[i] = canonical
+    if not alternatives:
+        return None, templates
+    return re.compile("|".join(alternatives), re.IGNORECASE), templates
+
+
+def canonicalize_fluorophore(
+    name: str, aliases: Optional[Sequence[Tuple[str, str]]] = None
+) -> str:
+    """Rewrite known alternative spellings to the canonical fluorophore name.
+
+    Vendor trademark marks are always stripped. Alias rules match whole
+    tokens, ignoring case and spaces/hyphens/slashes, anywhere in the name,
+    so tandems work too (`PE-AF700`, `PE/Cyanine7`). Unknown names pass
+    through unchanged.
+    """
+    cleaned = _TRADEMARK_MARKS.sub("", name).strip()
+    if not aliases:
+        return cleaned
+    regex, templates = _compile_aliases(tuple(map(tuple, aliases)))
+    if regex is None:
+        return cleaned
+
+    def replace(match: "re.Match[str]") -> str:
+        i = int(match.lastgroup[1:])
+        number = match.groupdict().get(f"n{i}")
+        template = templates[i]
+        return template.replace("{n}", number.upper()) if number else template
+
+    return regex.sub(replace, cleaned)
+
+
+def _canonicalize_reference(
+    sim_df: pd.DataFrame,
+    sim_names: Optional[Sequence[str]],
+    det_map: Optional[Dict[str, List[str]]],
+    aliases: Optional[Sequence[Tuple[str, str]]],
+):
+    """Put the reference names through the same alias rules as the input.
+
+    Input and reference then meet at the same canonical name, however either
+    one is spelled (e.g. "Brilliant Violet 421" in the similarity matrix).
+    """
+    mapping = {
+        name: canonicalize_fluorophore(name, aliases)
+        for name in list(sim_df.index) + list(sim_df.columns)
+    }
+    first_seen: Dict[str, str] = {}
+    for name in sim_df.index:
+        other = first_seen.setdefault(mapping[name], name)
+        if other != name:
+            raise ValueError(
+                f"Similarity matrix names {other!r} and {name!r} "
+                f"both mean {mapping[name]!r}; keep only one"
+            )
+    sim_df = sim_df.rename(index=mapping, columns=mapping)
+    if sim_names is not None:
+        sim_names = [canonicalize_fluorophore(n, aliases) for n in sim_names]
+    if det_map:
+        det_map = {
+            detector: [canonicalize_fluorophore(f, aliases) for f in fluors]
+            for detector, fluors in det_map.items()
+        }
+    return sim_df, sim_names, det_map
 
 
 def _normalize_antibody(name: str) -> str:
@@ -272,12 +407,33 @@ def prepare_search(
     det_map: Optional[Dict[str, List[str]]],
     top_n: int,
     backbone: Optional[Dict[str, str]] = None,
+    aliases: Optional[Sequence[Tuple[str, str]]] = None,
 ) -> Optional[dict]:
-    """Build the read-only search data. Returns None if nothing is assignable."""
+    """Build the read-only search data. Returns None if nothing is assignable.
+
+    Fluorophore names (input, backbone, similarity matrix and detector map)
+    are first rewritten to their canonical spelling using `aliases`, see
+    `canonicalize_fluorophore`.
+    """
     if top_n < 1:
         raise ValueError("top_n must be at least 1")
 
-    backbone = dict(backbone or {})
+    antibodies = {
+        antibody: [canonicalize_fluorophore(f, aliases) for f in fluors]
+        for antibody, fluors in antibodies.items()
+    }
+    sim_df, sim_names, det_map = _canonicalize_reference(
+        sim_df, sim_names, det_map, aliases
+    )
+    fixed: Dict[str, str] = {}
+    seen_backbone_antibodies: set = set()
+    for antibody, fluor in (backbone or {}).items():
+        key = _normalize_antibody(antibody)
+        if key in seen_backbone_antibodies:  # "CD3" vs "cd3": first one wins
+            continue
+        seen_backbone_antibodies.add(key)
+        fixed[antibody] = canonicalize_fluorophore(fluor, aliases)
+    backbone = fixed
     seen_backbone_fluors: Dict[str, str] = {}
     for antibody, fluor in backbone.items():
         key = normalize_fluorophore(fluor)
@@ -506,13 +662,17 @@ def find_best_panels(
     det_path: Optional[str] = None,
     top_n: int = 3,
     backbone: Optional[Dict[str, str]] = None,
+    aliases: Optional[Sequence[Tuple[str, str]]] = None,
+    alias_path: Optional[str] = None,
 ) -> dict:
     """
     Find the exact global top_n panels among all maximum-size feasible panels.
 
     `backbone` is a fixed antibody -> fluorophore mapping that is always part
     of every panel and takes priority over conflicting input antibodies or
-    fluorophores. `num_unique_fluor_sets` counts the full sets actually scored;
+    fluorophores. `aliases` (or `alias_path`) rewrites alternative fluorophore
+    spellings such as "Brilliant Violet 421" to the canonical "BV421" before
+    matching. `num_unique_fluor_sets` counts the full sets actually scored;
     branches proven worse than the current top_n are skipped
     (`num_pruned_branches`).
     """
@@ -531,8 +691,12 @@ def find_best_panels(
             sim_names = loaded_names
     if det_map is None and det_path:
         det_map = load_detector_map(det_path)
+    if aliases is None and alias_path:
+        aliases = load_fluorophore_aliases(alias_path)
 
-    data = prepare_search(antibodies, sim_df, sim_names, det_map, top_n, backbone)
+    data = prepare_search(
+        antibodies, sim_df, sim_names, det_map, top_n, backbone, aliases
+    )
     if data is None:
         original_order = list(antibodies)
         return {
@@ -581,6 +745,7 @@ if __name__ == "__main__":
     backbone_path = os.path.join(base_dir, "Data", "input_backbone.csv")
     sim_path = os.path.join(base_dir, "constants", "Similarity_Index.csv")
     det_path = os.path.join(base_dir, "constants", "Detector_Fluorophores.csv")
+    alias_path = os.path.join(base_dir, "constants", "Fluorophore_Aliases.csv")
 
     start = time.time()
     
@@ -588,6 +753,7 @@ if __name__ == "__main__":
     backbone = load_backbone(backbone_path)
     sim_df, sim_names = load_similarity_matrix(sim_path)
     det_map = load_detector_map(det_path)
+    aliases = load_fluorophore_aliases(alias_path)
 
     result = find_best_panels(
         antibodies=antibodies,
@@ -596,6 +762,7 @@ if __name__ == "__main__":
         det_map=det_map,
         top_n=3,
         backbone=backbone,
+        aliases=aliases,
     )
 
     elapsed = time.time() - start

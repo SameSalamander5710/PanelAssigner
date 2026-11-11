@@ -4,3 +4,4 @@ packages = ["numpy", "pandas"]
 "./Panel_optimized.py" = "./Panel_optimized.py"
 "./constants/Similarity_Index.csv" = "./constants/Similarity_Index.csv"
 "./constants/Detector_Fluorophores.csv" = "./constants/Detector_Fluorophores.csv"
+"./constants/Fluorophore_Aliases.csv" = "./constants/Fluorophore_Aliases.csv"

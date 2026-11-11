@@ -1,0 +1,63 @@
+Alias,Canonical
+Brilliant Violet {n},BV{n}
+BV {n},BV{n}
+Brilliant Ultra Violet {n},BUV{n}
+BUV {n},BUV{n}
+Brilliant Blue {n},BB{n}
+BB {n},BB{n}
+Brilliant Yellow Green {n},BYG{n}
+BYG {n},BYG{n}
+Alexa Fluor {n},Alexa Fluor {n}
+Alexa {n},Alexa Fluor {n}
+AF {n},Alexa Fluor {n}
+Fixable Viability Stain {n},Fixable Viability Stain {n}
+FVS {n},Fixable Viability Stain {n}
+Super Bright {n},Super Bright {n}
+SB {n},Super Bright {n}
+eFluor {n},eFluor {n}
+eF {n},eFluor {n}
+Qdot {n},Qdot {n}
+Quantum Dot {n},Qdot {n}
+QD {n},Qdot {n}
+Northern Lights {n},Northern Lights {n}
+NL {n},Northern Lights {n}
+Janelia Fluor {n},Janelia Fluor {n}
+JF {n},Janelia Fluor {n}
+Cyanine {n},Cy{n}
+Cy {n},Cy{n}
+Pacific Blue,Pacific Blue
+PB,Pacific Blue
+Pacific Orange,Pacific Orange
+PO,Pacific Orange
+Phycoerythrin,PE
+R-Phycoerythrin,PE
+R-PE,PE
+Allophycocyanin,APC
+Peridinin Chlorophyll Protein,PerCP
+Fluorescein isothiocyanate,FITC
+Fluorescein,FITC
+Propidium Iodide,PI
+7AAD,7-AAD
+7-Aminoactinomycin D,7-AAD
+Green Fluorescent Protein,GFP
+Enhanced Green Fluorescent Protein,eGFP
+Red Fluorescent Protein,RFP
+Yellow Fluorescent Protein,YFP
+Cyan Fluorescent Protein,CFP
+Blue Fluorescent Protein,BFP
+L/D Aqua,LIVE/DEAD Aqua
+L/D Blue,LIVE/DEAD Blue
+L/D Far Red,LIVE/DEAD Far Red
+L/D Green,LIVE/DEAD Green
+L/D NIR,LIVE/DEAD NIR
+L/D Red,LIVE/DEAD Red
+L/D Violet,LIVE/DEAD Violet
+L/D Yellow,LIVE/DEAD Yellow
+Live Dead Aqua,LIVE/DEAD Aqua
+Live Dead Blue,LIVE/DEAD Blue
+Live Dead Far Red,LIVE/DEAD Far Red
+Live Dead Green,LIVE/DEAD Green
+Live Dead NIR,LIVE/DEAD NIR
+Live Dead Red,LIVE/DEAD Red
+Live Dead Violet,LIVE/DEAD Violet
+Live Dead Yellow,LIVE/DEAD Yellow

@@ -9,6 +9,10 @@ import Panel_optimized as P
 
 SIM_DF, SIM_NAMES = P.load_similarity_matrix("./constants/Similarity_Index.csv")
 DET_MAP = P.load_detector_map("./constants/Detector_Fluorophores.csv")
+try:
+    ALIASES, ALIAS_ERROR = P.load_fluorophore_aliases("./constants/Fluorophore_Aliases.csv"), None
+except Exception as exc:  # a typo in the CSV is reported in the UI, not lost in the worker
+    ALIASES, ALIAS_ERROR = [], str(exc)
 
 TARGET_TASKS = 32  # more, smaller subtrees = better load balancing and pruning
 STATE = {}
@@ -49,11 +53,14 @@ def parse_backbone(text):
 def setup(text, top_n=3, backbone_text=""):
     """Every worker runs this with the same input and builds the same task list."""
     try:
+        if ALIAS_ERROR:
+            raise ValueError(f"Could not load fluorophore aliases: {ALIAS_ERROR}")
         top_n = int(top_n)
         backbone = parse_backbone(backbone_text)
         antibodies = parse_pasted(text, required=not backbone)
         data = P.prepare_search(
-            antibodies, SIM_DF, SIM_NAMES, DET_MAP, top_n, backbone=backbone
+            antibodies, SIM_DF, SIM_NAMES, DET_MAP, top_n,
+            backbone=backbone, aliases=ALIASES,
         )
         if data is None:
             raise ValueError("No assignable antibody/fluorophore pairs.")
