@@ -4,6 +4,7 @@ import csv
 import html as html_lib
 import io
 import json
+import math
 
 import Panel_optimized as P
 
@@ -105,6 +106,26 @@ def finalize(results_json):
     def esc(value):
         return html_lib.escape(str(value), quote=False)
 
+    # One similarity matrix per panel for the plot below the results. Names go
+    # out as JSON; the page inserts them as text, never as HTML.
+    matrices = []
+    for complexity, _, panel in best:
+        labels = list(panel["assignments"].values())  # same order as the table
+        backbone_fluors = set(panel.get("backbone", {}).values())
+        matrix = P.panel_similarity_matrix(STATE["data"], labels)
+        matrices.append({
+            "ci": complexity if math.isfinite(complexity) else None,
+            "fluors": [{
+                "name": fl,
+                "backbone": fl in backbone_fluors,
+                "status": ("unmapped" if fl in panel["unmapped_fluors"]
+                           else "substituted" if fl in panel["substitutions"] else ""),
+                "note": panel["substitutions"].get(fl, ""),
+            } for fl in labels],
+            "values": [[round(float(v), 4) if math.isfinite(v) else None for v in row]
+                       for row in matrix],
+        })
+
     parts = [
         '<table class="results-table"><thead><tr>',
         '<th class="num">#</th><th>Antibody</th>',
@@ -162,6 +183,7 @@ def finalize(results_json):
         "summary": summary,
         "html": "".join(parts),
         "substitutions_html": "".join(substitution_parts),
+        "matrices_json": json.dumps(matrices, allow_nan=False),
     })
 
 

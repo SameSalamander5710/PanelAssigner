@@ -13,6 +13,7 @@ The tool is hosted online at https://samesalamander5710.github.io/PanelAssigner/
 - Ranks panels by spectral overlap (condition index of the similarity matrix)
 - Automatic fluorophore name matching against a reference similarity matrix
 - Detector-based substitution for fluorophores not in the reference matrix
+- Similarity matrix plot of any result panel (WebUI only), below the results
 - Parallel execution across multiple CPU cores
 
 ## Input Format
@@ -31,8 +32,9 @@ Each result includes:
 - **Assignments**: antibody-to-fluorophore mapping
 - **Unassigned antibodies**: those that could not be matched
 - **Matrix Complexity**: lower values indicate less spectral overlap
-- **Substitutions**: fluorophores replaced by detector-matched alternatives
+- **Substitutions**: fluorophores replaced by detector-matched alternatives, if not found in the current database
 - **Unmapped**: fluorophores not found in the reference matrix
+- **Similarity matrix**: similarity matrix of result panels
 
 ## Installation
 

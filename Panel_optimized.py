@@ -346,16 +346,17 @@ def _prepare_similarity(
     return base, mapped_index, substitutions, unmapped
 
 
-def _complexity_for_set(
+def _similarity_submatrix(
     fluor_set: Sequence[str],
     base_similarity: np.ndarray,
     mapped_index: Dict[str, int],
-) -> float:
-    """Calculate the same eigenvalue-ratio complexity used in the original."""
-    n = len(fluor_set)
-    if n < 2:
-        return 1.0
+) -> np.ndarray:
+    """Similarity matrix of a fluorophore set, as used for its complexity.
 
+    Unmapped fluorophores have zero similarity to all others; the diagonal
+    is always one.
+    """
+    n = len(fluor_set)
     indices = np.fromiter(
         (mapped_index[f] for f in fluor_set), dtype=np.int64, count=n
     )
@@ -370,6 +371,25 @@ def _complexity_for_set(
         ]
 
     np.fill_diagonal(S, 1.0)
+    return S
+
+
+def panel_similarity_matrix(data: dict, fluor_set: Sequence[str]) -> np.ndarray:
+    """The exact matrix behind a panel's complexity score, rows/columns in
+    the order of `fluor_set` (`data` comes from `prepare_search`)."""
+    return _similarity_submatrix(fluor_set, data["base"], data["mapped_index"])
+
+
+def _complexity_for_set(
+    fluor_set: Sequence[str],
+    base_similarity: np.ndarray,
+    mapped_index: Dict[str, int],
+) -> float:
+    """Calculate the same eigenvalue-ratio complexity used in the original."""
+    if len(fluor_set) < 2:
+        return 1.0
+
+    S = _similarity_submatrix(fluor_set, base_similarity, mapped_index)
 
     if not np.isfinite(S).all():
         return float("inf")

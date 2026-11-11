@@ -8,6 +8,7 @@ pool = []
 status = document.getElementById("status")
 run_btn = document.getElementById("run")
 subs = document.getElementById("substitutions")
+matrix_data = document.getElementById("matrix-data")  # index.html draws the plot from this
 
 
 async def start():
@@ -49,6 +50,7 @@ async def compute(event):
     out = document.getElementById("output")
     out.innerHTML = ""
     subs.innerHTML = ""
+    matrix_data.textContent = ""
     status.innerText = "Computing on " + str(len(pool)) + " workers..."
     t0 = time.time()
     state = {"next": 0, "results": [], "known": [], "bound": None, "error": None}
@@ -64,6 +66,7 @@ async def compute(event):
         status.innerText = res["summary"] + " Time: " + str(round(time.time() - t0, 1)) + " s."
         out.innerHTML = res["html"]
         subs.innerHTML = res["substitutions_html"]
+        matrix_data.textContent = res["matrices_json"]
     run_btn.disabled = False
 
 

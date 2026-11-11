@@ -112,6 +112,32 @@
       height: 1rem;
       border: 1px solid #999;
     }
+    [hidden] { display: none !important; }
+    .matrix-section { display: flex; flex-direction: column; gap: .625rem; min-width: 0; }
+    .matrix-header { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem 1rem; }
+    #matrix-panel { width: 4rem; }
+    .matrix-ci { color: #555; font-size: .85rem; }
+    .matrix-scroll { overflow-x: auto; background: #fff; }
+    .matrix-table { border-collapse: collapse; font-size: 13.3333px; }
+    .matrix-table th,
+    .matrix-table td {
+      border: 1px solid #d0d0d0;
+      padding: 2px 4px;
+      text-align: center;
+      white-space: nowrap;
+    }
+    .matrix-table td { min-width: 2.6rem; font-variant-numeric: tabular-nums; }
+    .matrix-table th { background: #f2f2f2; font-weight: 600; }
+    .matrix-table .row-head { text-align: left; position: sticky; left: 0; z-index: 1; }
+    .matrix-table .col-head span { writing-mode: vertical-rl; transform: rotate(180deg); }
+    .matrix-table th.substituted { background: #cfe8ff; }
+    .matrix-table th.unmapped { background: #fff3bf; }
+    .matrix-table td.na { background: #eee; color: #777; }
+    .matrix-table td.diag { font-weight: 600; }
+    .legend .swatch.scale {
+      width: 4rem;
+      background: linear-gradient(to right, #fff, rgb(240, 138, 75));
+    }
     @media (max-width: 660px) {
       .inputs {
         grid-template-columns: 1fr;
@@ -152,6 +178,22 @@
         </div>
       </div>
       <div id="substitutions" class="substitutions"></div>
+      <div id="matrix-section" class="matrix-section" hidden>
+        <div class="matrix-header">
+          <div class="output-label">Similarity matrix</div>
+          <div class="topn-line">Panel <input id="matrix-panel" type="number" value="1" min="1" max="1"> of <span id="matrix-count">1</span></div>
+          <div id="matrix-ci" class="matrix-ci"></div>
+        </div>
+        <div class="results-box">
+          <div id="matrix-scroll" class="matrix-scroll"></div>
+          <div class="output-footer">
+            <div class="legend">
+              <span class="item">0<span class="swatch scale"></span>1 similarity</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="matrix-data" hidden></div>
     </div>
   </div>
 
@@ -291,6 +333,100 @@
       copyBtn.addEventListener('click', copyResults);
       window.addEventListener('resize', layoutResults);
       layoutResults();
+    })();
+  </script>
+
+  <script>
+    // Sub-panel similarity matrix: main.py puts JSON (one entry per result
+    // panel) into #matrix-data; this draws the panel picked in the selector.
+    (function () {
+      const data = document.getElementById('matrix-data');
+      const section = document.getElementById('matrix-section');
+      const input = document.getElementById('matrix-panel');
+      const count = document.getElementById('matrix-count');
+      const ci = document.getElementById('matrix-ci');
+      const scroll = document.getElementById('matrix-scroll');
+      let panels = [];
+
+      function shade(v) {
+        const t = Math.max(0, Math.min(1, v));
+        const mix = function (from, to) { return Math.round(from + (to - from) * t); };
+        return 'rgb(' + mix(255, 240) + ',' + mix(255, 138) + ',' + mix(255, 75) + ')';
+      }
+
+      function headerCell(fluor, className) {
+        const th = document.createElement('th');
+        th.className = className + (fluor.status ? ' ' + fluor.status : '');
+        const label = document.createElement('span');
+        label.textContent = fluor.name;
+        th.appendChild(label);
+        const notes = [];
+        if (fluor.backbone) notes.push('backbone');
+        if (fluor.status === 'unmapped') notes.push('unmapped');
+        if (fluor.status === 'substituted') notes.push('substituted: ' + fluor.note);
+        if (notes.length) th.title = notes.join('; ');
+        return th;
+      }
+
+      function render(n) {
+        const panel = panels[n - 1];
+        scroll.textContent = '';
+        if (!panel) return;
+        ci.textContent = 'Matrix CI: ' + (panel.ci === null ? 'inf' : panel.ci.toFixed(4));
+
+        const table = document.createElement('table');
+        table.className = 'matrix-table';
+        const head = table.createTHead().insertRow();
+        head.appendChild(document.createElement('th'));
+        panel.fluors.forEach(function (f) { head.appendChild(headerCell(f, 'col-head')); });
+
+        const body = table.createTBody();
+        panel.fluors.forEach(function (rowFluor, i) {
+          const row = body.insertRow();
+          row.appendChild(headerCell(rowFluor, 'row-head'));
+          panel.fluors.forEach(function (colFluor, j) {
+            const v = panel.values[i][j];
+            const cell = row.insertCell();
+            if (v === null) {
+              cell.className = 'na';
+              cell.textContent = 'n/a';
+            } else {
+              cell.className = i === j ? 'diag' : '';
+              cell.style.backgroundColor = shade(v);
+              cell.textContent = v === 0 ? '0' : v.toFixed(2);
+              cell.title = rowFluor.name + ' \u00d7 ' + colFluor.name + ': ' + v.toFixed(3);
+            }
+          });
+        });
+        scroll.appendChild(table);
+      }
+
+      function load() {
+        panels = [];
+        const text = data.textContent.trim();
+        if (text) {
+          try { panels = JSON.parse(text); } catch (error) { panels = []; }
+        }
+        section.hidden = panels.length === 0;
+        count.textContent = panels.length;
+        input.max = Math.max(1, panels.length);
+        input.value = 1;
+        render(1);
+      }
+
+      input.addEventListener('input', function () {
+        const n = parseInt(input.value, 10);
+        if (n >= 1 && n <= panels.length) render(n);
+      });
+      input.addEventListener('change', function () {
+        let n = parseInt(input.value, 10);
+        if (!(n >= 1)) n = 1;
+        if (n > panels.length) n = panels.length;
+        input.value = n;
+        render(n);
+      });
+      new MutationObserver(load).observe(data, { childList: true });
+      load();
     })();
   </script>
 
