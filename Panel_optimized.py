@@ -468,14 +468,23 @@ def prepare_search(
     backbone_fluor_keys = set(seen_backbone_fluors)
     backbone_antibody_keys = {_normalize_antibody(a) for a in backbone}
 
+    # Treat spellings that normalize to the same fluorophore (e.g. "PE/Cy7"
+    # and "PE-Cy7") as one option, using a single spelling everywhere so the
+    # same fluorophore can never appear twice or form a duplicate panel.
+    canonical_spelling: Dict[str, str] = {}
     options: Dict[str, List[str]] = {}
     for antibody, fluors in antibodies.items():
         if _normalize_antibody(antibody) in backbone_antibody_keys:
             continue
-        options[antibody] = [
-            fluor for fluor in dict.fromkeys(fluors)
-            if normalize_fluorophore(fluor) not in backbone_fluor_keys
-        ]
+        deduped: List[str] = []
+        seen_keys: set = set()
+        for fluor in fluors:
+            key = normalize_fluorophore(fluor)
+            if key in backbone_fluor_keys or key in seen_keys:
+                continue
+            seen_keys.add(key)
+            deduped.append(canonical_spelling.setdefault(key, fluor))
+        options[antibody] = deduped
 
     free_original_order = list(options)
     original_order = list(backbone) + free_original_order
