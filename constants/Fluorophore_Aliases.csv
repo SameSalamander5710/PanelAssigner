@@ -61,3 +61,12 @@ Live Dead NIR,LIVE/DEAD NIR
 Live Dead Red,LIVE/DEAD Red
 Live Dead Violet,LIVE/DEAD Violet
 Live Dead Yellow,LIVE/DEAD Yellow
+Real Blue {n},RB{n}
+RealBlue {n},RB{n}
+RB {n},RB{n}
+Real Violet {n},RV{n}
+RealViolet {n},RV{n}
+RV {n},RV{n}
+Real Yellow {n},RY{n}
+RealYellow {n},RY{n}
+RY {n},RY{n}
