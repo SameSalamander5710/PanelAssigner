@@ -123,6 +123,9 @@ def finalize(results_json):
         matrix = P.panel_similarity_matrix(STATE["data"], labels)
         matrices.append({
             "ci": complexity if math.isfinite(complexity) else None,
+            "candidates": P.eligible_fluorophore_count(
+                SIM_DF, SIM_NAMES, DET_MAP, labels, ALIASES
+            ),
             "fluors": [{
                 "name": fl,
                 "antibody": antibody_of[fl],
@@ -224,6 +227,7 @@ def suggest(panel_no, n=1):
             "ok": True, "panel": panel_no, "n": n,
             "base_ci": result["base_complexity"],
             "candidates": result["candidates"],
+            "combinations": result["combinations"],
             "suggestions": [{"fluors": s["fluors"], "ci": s["matrix_complexity"],
                              "values": s["values"]} for s in result["suggestions"]],
         }, allow_nan=False)

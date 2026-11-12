@@ -40,6 +40,8 @@
     #status { margin: 0; font-size: .85rem; }
     .output-panel { display: flex; flex-direction: column; min-width: 0; gap: .625rem 1rem; }
     .output-label { font-weight: 600; }
+    .section-heading { font-size: 1.15rem; }
+    .suggest-heading { margin-top: .375rem; }
     .substitutions { font-size: .85rem; color: #333; }
     .substitutions:empty { display: none; }
     .substitutions-heading { font-weight: 600; margin-bottom: .25rem; }
@@ -188,7 +190,7 @@
       <p id="status">Loading 4 Python workers (first visit takes a while)...</p>
     </div>
     <div class="output-panel">
-      <div class="output-label">Results</div>
+      <div class="output-label section-heading">Results</div>
       <div class="results-box">
         <div id="output"></div>
         <div class="output-footer">
@@ -217,9 +219,10 @@
           </div>
         </div>
         <div id="matrix-warning" class="matrix-warning" hidden></div>
+        <div class="output-label section-heading suggest-heading">Suggest additional fluorophores</div>
         <div class="suggest-controls">
-          Suggest <input id="suggest-n" type="number" value="1" min="1" max="5" title="Up to 5"> additional fluorophore(s) to add to panel <b id="suggest-panel">1</b>
           <button id="suggest-run" type="button">Suggest</button>
+          Show <input id="suggest-n" type="number" value="1" min="1" max="5" title="Up to 5"> additional fluorophore(s) from a pool of <span id="suggest-pool">?</span> fluorophores to add to panel <b id="suggest-panel">1</b>
           <span id="suggest-status" class="suggest-status"></span>
         </div>
         <div id="suggest-section" class="suggest-section" hidden>
@@ -449,6 +452,7 @@
       const scroll = document.getElementById('matrix-scroll');
       const warning = document.getElementById('matrix-warning');
       const suggestPanel = document.getElementById('suggest-panel');
+      const suggestPool = document.getElementById('suggest-pool');
       const sData = document.getElementById('suggest-data');
       const sSection = document.getElementById('suggest-section');
       const sTitle = document.getElementById('suggest-title');
@@ -568,6 +572,15 @@
         return table;
       }
 
+      function updateSuggestPool() {
+        const n = parseInt(input.value, 10);
+        const panel = panels[n - 1];
+        const candidates = suggestion && suggestion.panel === n
+          ? suggestion.candidates
+          : panel && panel.candidates;
+        suggestPool.textContent = candidates === undefined ? '?' : String(candidates);
+      }
+
       function render(n) {
         const panel = panels[n - 1];
         scroll.textContent = '';
@@ -577,6 +590,8 @@
         ci.textContent = 'Matrix CI: ' + (panel.ci === null ? 'inf' : panel.ci.toFixed(4));
 
         suggestPanel.textContent = n;
+        updateSuggestPool();
+        sSection.hidden = suggestion === null || suggestion.panel !== n;
         scroll.appendChild(buildTable(panel.fluors, panel.values, null));
       }
 
@@ -606,14 +621,14 @@
             if (parsed.ok && panels[parsed.panel - 1] && parsed.suggestions.length) suggestion = parsed;
           } catch (error) { suggestion = null; }
         }
-        sSection.hidden = suggestion === null;
+        sSection.hidden = suggestion === null || suggestion.panel !== parseInt(input.value, 10);
         sRows.textContent = '';
         sScroll.textContent = '';
+        updateSuggestPool();
         if (!suggestion) return;
 
-        sTitle.textContent = 'Suggested additions to panel ' + suggestion.panel + ': ' + suggestion.n +
-          ' more fluorophore' + (suggestion.n === 1 ? '' : 's') + ' (best ' + suggestion.suggestions.length +
-          ' of ' + suggestion.candidates + ' candidates)';
+        sTitle.textContent = 'Suggested additions to panel ' + suggestion.panel + ': Best ' +
+          suggestion.suggestions.length + ' of ' + suggestion.combinations + ' combinations';
         const table = document.createElement('table');
         table.className = 'results-table suggest-table';
         const head = table.createTHead().insertRow();

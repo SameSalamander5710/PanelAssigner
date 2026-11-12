@@ -25,6 +25,7 @@ split across several workers (see the PyScript page's worker.py).
 from __future__ import annotations
 
 import csv
+import math
 import os
 import re
 from functools import lru_cache
@@ -700,30 +701,19 @@ def search_subtree(data: dict, task: tuple, bound: float = INF):
 MAX_SUGGESTED = 5  # adding more than this at once gets slow and is rarely useful
 
 
-def suggest_additions(
+def _suggestion_pool(
     sim_df: pd.DataFrame,
     sim_names: Optional[Sequence[str]],
     det_map: Optional[Dict[str, List[str]]],
     panel_fluors: Sequence[str],
-    n: int,
-    top_n: int = 5,
     aliases: Optional[Sequence[Tuple[str, str]]] = None,
 ) -> dict:
-    """Best sets of `n` extra fluorophores to add to an existing panel.
+    """Prepare the eligible additions shared by the suggestion functions.
 
-    Candidates are all fluorophores of the reference matrix that the panel
-    does not use yet. Sets are ranked by the complexity of the panel plus the
-    new fluorophores. This is exact: the complexity never decreases when a
-    fluorophore is added, so partial sets that are already worse than the
-    current top_n are skipped. (The best n+1 set does not always contain the
-    best n set, so adding one at a time would not be exact.)
-
-    Returns {"base_complexity", "candidates", "suggestions": [{"fluors",
-    "matrix_complexity", "values"}]}, where `values` is the similarity matrix
-    of the panel followed by the new fluorophores.
+    Returns the canonical panel, its similarity data and base complexity, and
+    the eligible pool ordered by best single addition first, with that
+    complexity alongside.
     """
-    if not 1 <= n <= MAX_SUGGESTED:
-        raise ValueError(f"Choose between 1 and {MAX_SUGGESTED} fluorophores to add.")
     sim_df, sim_names, det_map = _canonicalize_reference(sim_df, sim_names, det_map, aliases)
     if sim_names is None:
         sim_names = list(sim_df.index)
@@ -760,8 +750,71 @@ def suggest_additions(
         if np.isfinite(c):
             singles.append((c, name))
     singles.sort()
-    pool = [name for _, name in singles]
-    single_complexity = [c for c, _ in singles]
+    return {
+        "panel": panel,
+        "base": base,
+        "mapped_index": mapped_index,
+        "base_complexity": base_complexity,
+        "pool": [name for _, name in singles],
+        "single_complexity": [c for c, _ in singles],
+    }
+
+
+def eligible_fluorophore_count(
+    sim_df: pd.DataFrame,
+    sim_names: Optional[Sequence[str]],
+    det_map: Optional[Dict[str, List[str]]],
+    panel_fluors: Sequence[str],
+    aliases: Optional[Sequence[Tuple[str, str]]] = None,
+) -> int:
+    """How many reference fluorophores could still be added to a panel.
+
+    Returns 0 when the panel itself has infinite complexity, since then no
+    addition can be ranked.
+    """
+    try:
+        return len(_suggestion_pool(sim_df, sim_names, det_map, panel_fluors, aliases)["pool"])
+    except ValueError:
+        return 0
+
+
+def suggest_additions(
+    sim_df: pd.DataFrame,
+    sim_names: Optional[Sequence[str]],
+    det_map: Optional[Dict[str, List[str]]],
+    panel_fluors: Sequence[str],
+    n: int,
+    top_n: int = 5,
+    aliases: Optional[Sequence[Tuple[str, str]]] = None,
+) -> dict:
+    """Best sets of `n` extra fluorophores to add to an existing panel.
+
+    Candidates are all fluorophores of the reference matrix that the panel
+    does not use yet. Sets are ranked by the complexity of the panel plus the
+    new fluorophores. This is exact: the complexity never decreases when a
+    fluorophore is added, so partial sets that are already worse than the
+    current top_n are skipped. (The best n+1 set does not always contain the
+    best n set, so adding one at a time would not be exact.)
+
+    Returns {"base_complexity", "candidates", "combinations", "suggestions":
+    [{"fluors", "matrix_complexity", "values"}]}, where `candidates` is the
+    number of eligible fluorophores, `combinations` is how many `n`-sized sets
+    they form, and `values` is the similarity matrix of the panel followed by
+    the new fluorophores.
+    """
+    if not 1 <= n <= MAX_SUGGESTED:
+        raise ValueError(f"Choose between 1 and {MAX_SUGGESTED} fluorophores to add.")
+    context = _suggestion_pool(sim_df, sim_names, det_map, panel_fluors, aliases)
+    panel = context["panel"]
+    base = context["base"]
+    mapped_index = context["mapped_index"]
+    base_complexity = context["base_complexity"]
+    pool = context["pool"]
+    single_complexity = context["single_complexity"]
+
+    def complexity(extra: Sequence[str]) -> float:
+        return _complexity_for_set(panel + list(extra), base, mapped_index)
+
     if len(pool) < n:
         raise ValueError(
             f"Only {len(pool)} suitable fluorophores are left in the reference "
@@ -802,6 +855,7 @@ def suggest_additions(
     return {
         "base_complexity": base_complexity,
         "candidates": len(pool),
+        "combinations": math.comb(len(pool), n),
         "suggestions": suggestions,
     }
 
