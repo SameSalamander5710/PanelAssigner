@@ -135,6 +135,8 @@ def finalize(results_json):
                        for row in matrix],
         })
 
+    STATE["panel_labels"] = [[f["name"] for f in m["fluors"]] for m in matrices]
+
     parts = [
         '<table class="results-table"><thead><tr>',
         '<th class="num">#</th><th>Antibody</th>',
@@ -202,4 +204,31 @@ def finalize(results_json):
     })
 
 
-__export__ = ["setup", "search", "finalize"]
+def suggest(panel_no, n=1):
+    """Best `n` fluorophores to add to result panel `panel_no` (1-based).
+
+    Needs finalize() to have run on this worker. The names go back as JSON and
+    the page inserts them as text.
+    """
+    try:
+        panels = STATE.get("panel_labels")
+        if not panels:
+            raise ValueError("Compute panels first.")
+        panel_no, n = int(panel_no), int(n)
+        if not 1 <= panel_no <= len(panels):
+            raise ValueError(f"There is no panel {panel_no}.")
+        result = P.suggest_additions(
+            SIM_DF, SIM_NAMES, DET_MAP, panels[panel_no - 1], n, top_n=5, aliases=ALIASES
+        )
+        return json.dumps({
+            "ok": True, "panel": panel_no, "n": n,
+            "base_ci": result["base_complexity"],
+            "candidates": result["candidates"],
+            "suggestions": [{"fluors": s["fluors"], "ci": s["matrix_complexity"],
+                             "values": s["values"]} for s in result["suggestions"]],
+        }, allow_nan=False)
+    except Exception as exc:
+        return json.dumps({"ok": False, "error": str(exc)})
+
+
+__export__ = ["setup", "search", "finalize", "suggest"]

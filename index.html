@@ -143,6 +143,20 @@
     .matrix-warning p { margin: 0; }
     .matrix-warning ul { margin: .25rem 0 .5rem 1.25rem; padding: 0; }
     .matrix-table td.hot { outline: 2px solid #c0392b; outline-offset: -2px; }
+    .matrix-table th.base { background: #d9d9d9; }
+    .matrix-table th.new { background: #b7e4c7; }
+    .matrix-table .edge-left { border-left: 2px solid #2d6a4f; }
+    .matrix-table .edge-top { border-top: 2px solid #2d6a4f; }
+    .legend .swatch.base { background: #d9d9d9; }
+    .legend .swatch.new { background: #b7e4c7; }
+    .suggest-controls { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .5rem; }
+    .suggest-controls button { padding: .3rem .75rem; font-size: .9rem; }
+    #suggest-n, #suggest-pick { width: 4rem; }
+    .suggest-status { font-size: .85rem; color: #555; }
+    .suggest-section { display: flex; flex-direction: column; gap: .625rem; min-width: 0; }
+    .suggest-rows { overflow-x: auto; }
+    .suggest-table tbody tr { cursor: pointer; }
+    .suggest-table tbody tr.selected td { background: #b7e4c7; }
     .legend .swatch.scale {
       width: 4rem;
       background: linear-gradient(to right, #fff, rgb(240, 138, 75));
@@ -203,8 +217,32 @@
           </div>
         </div>
         <div id="matrix-warning" class="matrix-warning" hidden></div>
+        <div class="suggest-controls">
+          Suggest <input id="suggest-n" type="number" value="1" min="1" max="5" title="Up to 5"> additional fluorophore(s) to add to panel <b id="suggest-panel">1</b>
+          <button id="suggest-run" type="button">Suggest</button>
+          <span id="suggest-status" class="suggest-status"></span>
+        </div>
+        <div id="suggest-section" class="suggest-section" hidden>
+          <div id="suggest-title" class="output-label"></div>
+          <div class="results-box"><div id="suggest-rows" class="suggest-rows"></div></div>
+          <div class="matrix-header">
+            <div class="topn-line">Suggestion <input id="suggest-pick" type="number" value="1" min="1" max="1"> of <span id="suggest-count">1</span></div>
+            <div id="suggest-ci" class="matrix-ci"></div>
+          </div>
+          <div class="results-box">
+            <div id="suggest-scroll" class="matrix-scroll"></div>
+            <div class="output-footer">
+              <div class="legend">
+                <span class="item">0<span class="swatch scale"></span>1 similarity</span>
+                <span class="item"><span class="swatch base"></span>Panel fluorophores</span>
+                <span class="item"><span class="swatch new"></span>Suggested additions</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
       <div id="matrix-data" hidden></div>
+      <div id="suggest-data" hidden></div>
     </div>
   </div>
 
@@ -410,9 +448,19 @@
       const ci = document.getElementById('matrix-ci');
       const scroll = document.getElementById('matrix-scroll');
       const warning = document.getElementById('matrix-warning');
+      const suggestPanel = document.getElementById('suggest-panel');
+      const sData = document.getElementById('suggest-data');
+      const sSection = document.getElementById('suggest-section');
+      const sTitle = document.getElementById('suggest-title');
+      const sRows = document.getElementById('suggest-rows');
+      const sPick = document.getElementById('suggest-pick');
+      const sCount = document.getElementById('suggest-count');
+      const sCi = document.getElementById('suggest-ci');
+      const sScroll = document.getElementById('suggest-scroll');
       const SIM_WARN = 0.9; // pairs at or above this similarity get flagged
       let panels = [];
       let totalAntibodies = null;
+      let suggestion = null; // worker answer for the last "Suggest" click
 
       function shade(v) {
         const t = Math.max(0, Math.min(1, v));
@@ -420,9 +468,9 @@
         return 'rgb(' + mix(255, 240) + ',' + mix(255, 138) + ',' + mix(255, 75) + ')';
       }
 
-      function headerCell(fluor, className) {
+      function headerCell(fluor, className, group) {
         const th = document.createElement('th');
-        th.className = className + (fluor.status ? ' ' + fluor.status : '');
+        th.className = className + (group ? ' ' + group : (fluor.status ? ' ' + fluor.status : ''));
         const label = document.createElement('span');
         label.textContent = fluor.name;
         th.appendChild(label);
@@ -481,26 +529,28 @@
         warning.appendChild(advice);
       }
 
-      function render(n) {
-        const panel = panels[n - 1];
-        scroll.textContent = '';
-        warning.hidden = true;
-        if (!panel) return;
-        showWarning(panel);
-        ci.textContent = 'Matrix CI: ' + (panel.ci === null ? 'inf' : panel.ci.toFixed(4));
-
+      // groups (optional): 'base' / 'new' per fluorophore, for the suggestion
+      // matrix. The first 'new' row and column get a line to mark the border.
+      function buildTable(fluors, values, groups) {
+        const firstNew = groups ? groups.indexOf('new') : -1;
         const table = document.createElement('table');
         table.className = 'matrix-table';
         const head = table.createTHead().insertRow();
         head.appendChild(document.createElement('th'));
-        panel.fluors.forEach(function (f) { head.appendChild(headerCell(f, 'col-head')); });
+        fluors.forEach(function (f, j) {
+          const th = headerCell(f, 'col-head', groups && groups[j]);
+          if (j === firstNew) th.classList.add('edge-left');
+          head.appendChild(th);
+        });
 
         const body = table.createTBody();
-        panel.fluors.forEach(function (rowFluor, i) {
+        fluors.forEach(function (rowFluor, i) {
           const row = body.insertRow();
-          row.appendChild(headerCell(rowFluor, 'row-head'));
-          panel.fluors.forEach(function (colFluor, j) {
-            const v = panel.values[i][j];
+          const rowHead = headerCell(rowFluor, 'row-head', groups && groups[i]);
+          if (i === firstNew) rowHead.classList.add('edge-top');
+          row.appendChild(rowHead);
+          fluors.forEach(function (colFluor, j) {
+            const v = values[i][j];
             const cell = row.insertCell();
             if (v === null) {
               cell.className = 'na';
@@ -511,9 +561,85 @@
               cell.textContent = v === 0 ? '0' : v.toFixed(2);
               cell.title = rowFluor.name + ' \u00d7 ' + colFluor.name + ': ' + v.toFixed(3);
             }
+            if (j === firstNew) cell.classList.add('edge-left');
+            if (i === firstNew) cell.classList.add('edge-top');
           });
         });
-        scroll.appendChild(table);
+        return table;
+      }
+
+      function render(n) {
+        const panel = panels[n - 1];
+        scroll.textContent = '';
+        warning.hidden = true;
+        if (!panel) return;
+        showWarning(panel);
+        ci.textContent = 'Matrix CI: ' + (panel.ci === null ? 'inf' : panel.ci.toFixed(4));
+
+        suggestPanel.textContent = n;
+        scroll.appendChild(buildTable(panel.fluors, panel.values, null));
+      }
+
+      function showSuggestion(n) {
+        const item = suggestion && suggestion.suggestions[n - 1];
+        sScroll.textContent = '';
+        Array.prototype.forEach.call(sRows.querySelectorAll('tbody tr'), function (row, i) {
+          row.classList.toggle('selected', i === n - 1);
+        });
+        if (!item) return;
+        const base = panels[suggestion.panel - 1];
+        const added = item.fluors.map(function (name) {
+          return { name: name, status: '', note: '', backbone: false };
+        });
+        const groups = base.fluors.map(function () { return 'base'; })
+          .concat(added.map(function () { return 'new'; }));
+        sCi.textContent = 'Matrix CI: ' + item.ci.toFixed(4) + ' (panel ' + suggestion.panel + ': ' + suggestion.base_ci.toFixed(4) + ')';
+        sScroll.appendChild(buildTable(base.fluors.concat(added), item.values, groups));
+      }
+
+      function loadSuggestions() {
+        suggestion = null;
+        const text = sData.textContent.trim();
+        if (text) {
+          try {
+            const parsed = JSON.parse(text);
+            if (parsed.ok && panels[parsed.panel - 1] && parsed.suggestions.length) suggestion = parsed;
+          } catch (error) { suggestion = null; }
+        }
+        sSection.hidden = suggestion === null;
+        sRows.textContent = '';
+        sScroll.textContent = '';
+        if (!suggestion) return;
+
+        sTitle.textContent = 'Suggested additions to panel ' + suggestion.panel + ': ' + suggestion.n +
+          ' more fluorophore' + (suggestion.n === 1 ? '' : 's') + ' (best ' + suggestion.suggestions.length +
+          ' of ' + suggestion.candidates + ' candidates)';
+        const table = document.createElement('table');
+        table.className = 'results-table suggest-table';
+        const head = table.createTHead().insertRow();
+        ['#', 'Added fluorophores', 'Matrix CI', 'Change'].forEach(function (text, i) {
+          const th = document.createElement('th');
+          th.textContent = text;
+          if (i !== 1) th.className = 'num';
+          head.appendChild(th);
+        });
+        const body = table.createTBody();
+        suggestion.suggestions.forEach(function (item, i) {
+          const row = body.insertRow();
+          const cells = [String(i + 1), item.fluors.join(', '), item.ci.toFixed(4),
+                         '+' + (item.ci - suggestion.base_ci).toFixed(4)];
+          cells.forEach(function (text, k) {
+            const td = row.insertCell();
+            td.textContent = text;
+            if (k !== 1) td.className = 'num';
+          });
+          row.addEventListener('click', function () { sPick.value = i + 1; showSuggestion(i + 1); });
+        });
+        sRows.appendChild(table);
+        sCount.textContent = suggestion.suggestions.length;
+        sPick.max = suggestion.suggestions.length;
+        sPick.value = 1;
+        showSuggestion(1);
       }
 
       function load() {
@@ -527,6 +653,8 @@
             totalAntibodies = parsed.total === undefined ? null : parsed.total;
           } catch (error) { panels = []; }
         }
+        sData.textContent = '';
+        loadSuggestions();
         section.hidden = panels.length === 0;
         count.textContent = panels.length;
         input.max = Math.max(1, panels.length);
@@ -545,6 +673,25 @@
         input.value = n;
         render(n);
       });
+      sPick.addEventListener('input', function () {
+        const n = parseInt(sPick.value, 10);
+        if (suggestion && n >= 1 && n <= suggestion.suggestions.length) showSuggestion(n);
+      });
+      sPick.addEventListener('change', function () {
+        let n = parseInt(sPick.value, 10);
+        if (!(n >= 1)) n = 1;
+        if (suggestion && n > suggestion.suggestions.length) n = suggestion.suggestions.length;
+        sPick.value = n;
+        showSuggestion(n);
+      });
+      const suggestInput = document.getElementById('suggest-n');
+      suggestInput.addEventListener('change', function () {
+        let n = parseInt(suggestInput.value, 10);
+        if (!(n >= 1)) n = 1;
+        if (n > 5) n = 5;
+        suggestInput.value = n;
+      });
+      new MutationObserver(loadSuggestions).observe(sData, { childList: true });
       new MutationObserver(load).observe(data, { childList: true });
       load();
     })();

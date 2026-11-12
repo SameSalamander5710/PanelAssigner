@@ -697,6 +697,115 @@ def search_subtree(data: dict, task: tuple, bound: float = INF):
     return best, evaluated, pruned
 
 
+MAX_SUGGESTED = 5  # adding more than this at once gets slow and is rarely useful
+
+
+def suggest_additions(
+    sim_df: pd.DataFrame,
+    sim_names: Optional[Sequence[str]],
+    det_map: Optional[Dict[str, List[str]]],
+    panel_fluors: Sequence[str],
+    n: int,
+    top_n: int = 5,
+    aliases: Optional[Sequence[Tuple[str, str]]] = None,
+) -> dict:
+    """Best sets of `n` extra fluorophores to add to an existing panel.
+
+    Candidates are all fluorophores of the reference matrix that the panel
+    does not use yet. Sets are ranked by the complexity of the panel plus the
+    new fluorophores. This is exact: the complexity never decreases when a
+    fluorophore is added, so partial sets that are already worse than the
+    current top_n are skipped. (The best n+1 set does not always contain the
+    best n set, so adding one at a time would not be exact.)
+
+    Returns {"base_complexity", "candidates", "suggestions": [{"fluors",
+    "matrix_complexity", "values"}]}, where `values` is the similarity matrix
+    of the panel followed by the new fluorophores.
+    """
+    if not 1 <= n <= MAX_SUGGESTED:
+        raise ValueError(f"Choose between 1 and {MAX_SUGGESTED} fluorophores to add.")
+    sim_df, sim_names, det_map = _canonicalize_reference(sim_df, sim_names, det_map, aliases)
+    if sim_names is None:
+        sim_names = list(sim_df.index)
+
+    panel = [canonicalize_fluorophore(f, aliases) for f in panel_fluors]
+    taken = {normalize_fluorophore(f) for f in panel}
+    candidates = [
+        name for name in dict.fromkeys(sim_names)
+        if normalize_fluorophore(name) not in taken
+    ]
+    base, mapped_index, substitutions, _ = _prepare_similarity(
+        sim_df, sim_names, panel + candidates, det_map
+    )
+    # A panel fluorophore that stands in for a matrix fluorophore occupies it.
+    taken |= {normalize_fluorophore(s) for s in substitutions.values()}
+    candidates = [c for c in candidates if normalize_fluorophore(c) not in taken]
+
+    def complexity(extra: Sequence[str]) -> float:
+        return _complexity_for_set(panel + list(extra), base, mapped_index)
+
+    base_complexity = complexity([])
+    if not np.isfinite(base_complexity):
+        raise ValueError(
+            "Two fluorophores in this panel have identical spectra, so its "
+            "complexity is infinite and additions cannot be ranked."
+        )
+
+    # Candidates that are infinite on their own (identical to a panel member)
+    # can never be part of a finite set. Best single additions first, so good
+    # sets are found early and the bound tightens quickly.
+    singles = []
+    for name in candidates:
+        c = complexity([name])
+        if np.isfinite(c):
+            singles.append((c, name))
+    singles.sort()
+    pool = [name for _, name in singles]
+    single_complexity = [c for c, _ in singles]
+    if len(pool) < n:
+        raise ValueError(
+            f"Only {len(pool)} suitable fluorophores are left in the reference "
+            f"matrix to add."
+        )
+
+    found: List[Tuple[float, Tuple[str, ...]]] = []
+
+    def limit() -> float:
+        return found[-1][0] if len(found) >= top_n else INF
+
+    def extend(start: int, chosen: List[str]) -> None:
+        needed = n - len(chosen)
+        for i in range(start, len(pool) - needed + 1):
+            if _worse_than(single_complexity[i], limit()):
+                break  # sorted: no later candidate can do better either
+            chosen.append(pool[i])
+            c = complexity(chosen)
+            if np.isfinite(c) and not _worse_than(c, limit()):
+                if needed == 1:
+                    found.append((c, tuple(chosen)))
+                    found.sort()
+                    del found[top_n:]
+                else:
+                    extend(i + 1, chosen)
+            chosen.pop()
+
+    extend(0, [])
+
+    suggestions = []
+    for c, extra in found:
+        matrix = _similarity_submatrix(panel + list(extra), base, mapped_index)
+        suggestions.append({
+            "fluors": list(extra),
+            "matrix_complexity": c,
+            "values": [[round(float(v), 4) for v in row] for row in matrix],
+        })
+    return {
+        "base_complexity": base_complexity,
+        "candidates": len(pool),
+        "suggestions": suggestions,
+    }
+
+
 def find_best_panels(
     antibodies: Optional[Dict[str, List[str]]] = None,
     csv_path: Optional[str] = None,
