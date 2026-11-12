@@ -814,7 +814,7 @@ def find_best_panels(
     det_map: Optional[Dict[str, List[str]]] = None,
     sim_path: Optional[str] = None,
     det_path: Optional[str] = None,
-    top_n: int = 3,
+    top_n: int = 10,
     backbone: Optional[Dict[str, str]] = None,
     aliases: Optional[Sequence[Tuple[str, str]]] = None,
     alias_path: Optional[str] = None,
@@ -917,7 +917,7 @@ if __name__ == "__main__":
         sim_df=sim_df,
         sim_names=sim_names,
         det_map=det_map,
-        top_n=3,
+        top_n=10,
         backbone=backbone,
         aliases=aliases,
     )

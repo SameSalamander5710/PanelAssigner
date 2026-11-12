@@ -51,7 +51,7 @@ def parse_backbone(text):
     return {ab: fls[0] for ab, fls in pairs.items() if fls}
 
 
-def setup(text, top_n=3, backbone_text="", max_fit=""):
+def setup(text, top_n=10, backbone_text="", max_fit=""):
     """Every worker runs this with the same input and builds the same task list.
 
     `max_fit` is the "fit at most N antibodies" limit; blank means no limit."""

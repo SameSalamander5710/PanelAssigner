@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="https://pyscript.net/releases/2026.7.3/core.css">
   <script type="module" src="https://pyscript.net/releases/2026.7.3/core.js"></script>
   <style>
-    :root { --col-width: 18.2rem; }
+    :root { --col-width: 18.7rem; }
     body { font-family: system-ui, sans-serif; max-width: calc(2 * var(--col-width) + 1rem); margin: 2rem auto; padding: 0 1rem; }
     h1 { margin-bottom: .25rem; }
     textarea, #output { width: 100%; box-sizing: border-box; font-family: ui-monospace, monospace; }
@@ -183,8 +183,8 @@
     </div>
     <div class="controls">
       <button id="run" disabled>Compute</button>
-      <div class="topn-line">Top <input id="topn" type="number" value="3" min="1"> panels</div>
-      <div class="topn-line" title="Largest panel to attempt. Lower it to leave out antibodies whose fluorophores clash.">Fit at most <input id="maxfit" type="number" min="1"> of <span id="maxfit-total">0</span> antibodies</div>
+      <div class="topn-line">Show top <input id="topn" type="number" value="10" min="1"> panels.</div>
+      <div class="topn-line" title="Largest panel to attempt. Lower it to leave out antibodies whose fluorophores clash.">Fit at most <input id="maxfit" type="number" min="1"> of <span id="maxfit-total">0</span> antibodies.</div>
       <p id="status">Loading 4 Python workers (first visit takes a while)...</p>
     </div>
     <div class="output-panel">

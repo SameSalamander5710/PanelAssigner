@@ -369,7 +369,7 @@ def calculate_panel_complexity(fluorophores, sim_df, sim_names, det_map=None):
     }
 
 
-def rank_combinations_by_complexity(assignment_result, sim_df, sim_names, det_map, top_n=3):
+def rank_combinations_by_complexity(assignment_result, sim_df, sim_names, det_map, top_n=10):
     """Rank combinations by spectral complexity (lowest first)."""
     sim_names_normalized = {normalize_fluorophore(n): n for n in sim_names}
     ranked = []
@@ -405,9 +405,9 @@ sim_df, sim_names = load_similarity_matrix(sim_path)
 det_map = load_detector_map(det_path)
 
 # Rank by complexity
-top_panels, sim_names_normalized, det_map = rank_combinations_by_complexity(result, sim_df, sim_names, det_map, top_n=3)
+top_panels, sim_names_normalized, det_map = rank_combinations_by_complexity(result, sim_df, sim_names, det_map, top_n=10)
 
-print("\n--- Top 3 Panels (Lowest Complexity) ---")
+print("\n--- Top 10 Panels (Lowest Complexity) ---")
 for i, panel in enumerate(top_panels, 1):
     print(f"\nRank {i} - Matrix CI: {panel['matrix_complexity']:.4f}")
     for ab, fluor in panel['assignments'].items():
