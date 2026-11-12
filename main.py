@@ -18,9 +18,9 @@ async def start():
     status.innerText = "Ready (" + str(len(pool)) + " workers)."
 
 
-async def drive(worker, text, backbone, top_n, state):  # top_n is an int here
+async def drive(worker, text, backbone, top_n, max_fit, state):  # top_n is an int here
     """One loop per worker: set up, then keep pulling the next unclaimed subtree."""
-    info = json.loads(await worker.setup(text, str(top_n), backbone))
+    info = json.loads(await worker.setup(text, str(top_n), backbone, max_fit))
     if not info["ok"]:
         state["error"] = info["error"]
         return
@@ -57,7 +57,8 @@ async def compute(event):
     text = document.getElementById("input").value
     backbone = document.getElementById("backbone").value
     top_n = int(document.getElementById("topn").value)
-    await asyncio.gather(*[drive(w, text, backbone, top_n, state) for w in pool])
+    max_fit = document.getElementById("maxfit").value  # "" = no limit
+    await asyncio.gather(*[drive(w, text, backbone, top_n, max_fit, state) for w in pool])
 
     if state["error"]:
         status.innerText = "Error: " + state["error"]

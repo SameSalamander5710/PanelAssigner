@@ -428,8 +428,13 @@ def prepare_search(
     top_n: int,
     backbone: Optional[Dict[str, str]] = None,
     aliases: Optional[Sequence[Tuple[str, str]]] = None,
+    max_assigned: Optional[int] = None,
 ) -> Optional[dict]:
     """Build the read-only search data. Returns None if nothing is assignable.
+
+    `max_assigned` caps the panel size (backbone included): the search then
+    looks for the best panels fitting at most that many antibodies. None, or
+    anything above what is possible, means as many as can be assigned.
 
     Fluorophore names (input, backbone, similarity matrix and detector map)
     are first rewritten to their canonical spelling using `aliases`, see
@@ -496,6 +501,16 @@ def prepare_search(
     all_fluors = sorted(antibodies_by_fluor)
 
     free_max_count = len(_maximum_matching(all_fluors, antibodies_by_fluor))
+    max_possible = len(backbone) + free_max_count
+    if max_assigned is not None:
+        if max_assigned < 1:
+            raise ValueError('"Fit at most" (max_assigned) must be at least 1.')
+        if max_assigned < len(backbone):
+            raise ValueError(
+                f'"Fit at most" is {max_assigned}, but the fixed backbone '
+                f"alone has {len(backbone)} antibodies."
+            )
+        free_max_count = min(free_max_count, max_assigned - len(backbone))
     max_count = len(backbone) + free_max_count
     if max_count == 0:
         return None
@@ -507,6 +522,7 @@ def prepare_search(
     )
     return {
         "all_fluors": all_fluors, "max_count": max_count,
+        "max_possible": max_possible,
         "free_max_count": free_max_count,
         "antibodies_by_fluor": antibodies_by_fluor,
         "original_order": original_order,
@@ -693,9 +709,11 @@ def find_best_panels(
     backbone: Optional[Dict[str, str]] = None,
     aliases: Optional[Sequence[Tuple[str, str]]] = None,
     alias_path: Optional[str] = None,
+    max_assigned: Optional[int] = None,
 ) -> dict:
     """
     Find the exact global top_n panels among all maximum-size feasible panels.
+    With `max_assigned`, "maximum-size" means at most that many antibodies.
 
     `backbone` is a fixed antibody -> fluorophore mapping that is always part
     of every panel and takes priority over conflicting input antibodies or
@@ -724,7 +742,8 @@ def find_best_panels(
         aliases = load_fluorophore_aliases(alias_path)
 
     data = prepare_search(
-        antibodies, sim_df, sim_names, det_map, top_n, backbone, aliases
+        antibodies, sim_df, sim_names, det_map, top_n, backbone, aliases,
+        max_assigned,
     )
     if data is None:
         original_order = list(antibodies)

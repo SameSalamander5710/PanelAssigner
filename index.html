@@ -14,7 +14,7 @@
     textarea { resize: none; }
     label { display: block; margin-top: 1rem; font-weight: 600; }
     button { padding: .5rem 1.25rem; font-size: 1rem; }
-    #topn { width: 4rem; }
+    #topn, #maxfit { width: 4rem; }
     .layout { display: flex; flex-direction: column; gap: 1rem; }
     .inputs {
       display: grid;
@@ -134,6 +134,15 @@
     .matrix-table th.unmapped { background: #fff3bf; }
     .matrix-table td.na { background: #eee; color: #777; }
     .matrix-table td.diag { font-weight: 600; }
+    .matrix-warning {
+      border: 1px solid #d9a400;
+      background: #fff8e1;
+      padding: .5rem .75rem;
+      font-size: .85rem;
+    }
+    .matrix-warning p { margin: 0; }
+    .matrix-warning ul { margin: .25rem 0 .5rem 1.25rem; padding: 0; }
+    .matrix-table td.hot { outline: 2px solid #c0392b; outline-offset: -2px; }
     .legend .swatch.scale {
       width: 4rem;
       background: linear-gradient(to right, #fff, rgb(240, 138, 75));
@@ -161,6 +170,7 @@
     <div class="controls">
       <button id="run" disabled>Compute</button>
       <div class="topn-line">Top <input id="topn" type="number" value="3" min="1"> panels</div>
+      <div class="topn-line" title="Largest panel to attempt. Lower it to leave out antibodies whose fluorophores clash.">Fit at most <input id="maxfit" type="number" min="1"> of <span id="maxfit-total">0</span> antibodies</div>
       <p id="status">Loading 4 Python workers (first visit takes a while)...</p>
     </div>
     <div class="output-panel">
@@ -192,6 +202,7 @@
             </div>
           </div>
         </div>
+        <div id="matrix-warning" class="matrix-warning" hidden></div>
       </div>
       <div id="matrix-data" hidden></div>
     </div>
@@ -337,6 +348,58 @@
   </script>
 
   <script>
+    // "Fit at most N antibodies": defaults to the number of unique antibodies
+    // in the two boxes and follows them until the user picks a lower number.
+    (function () {
+      const input = document.getElementById('input');
+      const backbone = document.getElementById('backbone');
+      const fit = document.getElementById('maxfit');
+      const totalLabel = document.getElementById('maxfit-total');
+      let wanted = null; // null = follow the total
+
+      // Mirrors worker.parse_pasted: first column of every Antibody/Fluorophore row.
+      function antibodies(text) {
+        text = text.trim();
+        const delimiter = text.indexOf('\t') >= 0 ? '\t' : (text.indexOf(',') >= 0 ? ',' : ';');
+        const names = [];
+        text.split(/\r?\n/).forEach(function (line) {
+          const cells = line.split(delimiter);
+          if (cells.length < 2) return;
+          const ab = cells[0].trim(), fl = cells[1].trim();
+          if (!ab || !fl) return;
+          if (ab.toLowerCase() === 'antibody' && fl.toLowerCase() === 'fluorophore') return;
+          names.push(ab);
+        });
+        return names;
+      }
+      function normalize(name) { return name.trim().toLowerCase().split(/\s+/).join(' '); }
+
+      function total() {
+        const fixed = new Set(antibodies(backbone.value).map(normalize));
+        const free = new Set(antibodies(input.value).filter(function (a) { return !fixed.has(normalize(a)); }));
+        return fixed.size + free.size;
+      }
+
+      function refresh() {
+        const n = total();
+        totalLabel.textContent = n;
+        fit.max = n;
+        if (wanted !== null && wanted >= n) wanted = null;
+        fit.value = n === 0 ? '' : String(wanted === null ? n : wanted);
+      }
+
+      input.addEventListener('input', refresh);
+      backbone.addEventListener('input', refresh);
+      fit.addEventListener('input', function () {
+        const v = parseInt(fit.value, 10);
+        wanted = v >= 1 ? v : null;
+      });
+      fit.addEventListener('change', refresh); // clamps, and blank goes back to the maximum
+      refresh();
+    })();
+  </script>
+
+  <script>
     // Sub-panel similarity matrix: main.py puts JSON (one entry per result
     // panel) into #matrix-data; this draws the panel picked in the selector.
     (function () {
@@ -346,7 +409,10 @@
       const count = document.getElementById('matrix-count');
       const ci = document.getElementById('matrix-ci');
       const scroll = document.getElementById('matrix-scroll');
+      const warning = document.getElementById('matrix-warning');
+      const SIM_WARN = 0.9; // pairs at or above this similarity get flagged
       let panels = [];
+      let totalAntibodies = null;
 
       function shade(v) {
         const t = Math.max(0, Math.min(1, v));
@@ -368,10 +434,59 @@
         return th;
       }
 
+      function label(fluor) {
+        return fluor.antibody ? fluor.antibody + ' (' + fluor.name + ')' : fluor.name;
+      }
+
+      // Fewest antibodies to leave out so that none of the flagged pairs remains.
+      function minCover(edges) {
+        if (!edges.length) return 0;
+        const a = edges[0][0], b = edges[0][1];
+        const without = function (node) {
+          return edges.filter(function (e) { return e[0] !== node && e[1] !== node; });
+        };
+        return 1 + Math.min(minCover(without(a)), minCover(without(b)));
+      }
+
+      function showWarning(panel) {
+        warning.textContent = '';
+        const pairs = [];
+        for (let i = 0; i < panel.fluors.length; i++) {
+          for (let j = i + 1; j < panel.fluors.length; j++) {
+            const v = panel.values[i][j];
+            if (v !== null && v >= SIM_WARN) pairs.push([i, j, v]);
+          }
+        }
+        warning.hidden = pairs.length === 0;
+        if (!pairs.length) return;
+
+        const intro = document.createElement('p');
+        intro.textContent = '\u26a0 ' + pairs.length + (pairs.length === 1 ? ' pair of fluorophores has' : ' pairs of fluorophores have') +
+          ' a similarity of ' + SIM_WARN.toFixed(2) + ' or more in this panel:';
+        warning.appendChild(intro);
+        const list = document.createElement('ul');
+        pairs.forEach(function (pair) {
+          const item = document.createElement('li');
+          item.textContent = label(panel.fluors[pair[0]]) + ' \u00d7 ' + label(panel.fluors[pair[1]]) + ': ' + pair[2].toFixed(2);
+          list.appendChild(item);
+        });
+        warning.appendChild(list);
+
+        const size = panel.fluors.length;
+        const leaveOut = pairs.length <= 15 ? minCover(pairs) : 1;
+        const advice = document.createElement('p');
+        advice.textContent = 'To avoid ' + (pairs.length === 1 ? 'it' : 'them') + ', lower \u201cFit at most\u201d to ' +
+          Math.max(1, size - leaveOut) + ' or less (this panel fits ' + size +
+          (totalAntibodies === null ? '' : ' of ' + totalAntibodies) + ' antibodies) and compute again, so an antibody of each pair is left out.';
+        warning.appendChild(advice);
+      }
+
       function render(n) {
         const panel = panels[n - 1];
         scroll.textContent = '';
+        warning.hidden = true;
         if (!panel) return;
+        showWarning(panel);
         ci.textContent = 'Matrix CI: ' + (panel.ci === null ? 'inf' : panel.ci.toFixed(4));
 
         const table = document.createElement('table');
@@ -391,7 +506,7 @@
               cell.className = 'na';
               cell.textContent = 'n/a';
             } else {
-              cell.className = i === j ? 'diag' : '';
+              cell.className = i === j ? 'diag' : (v >= SIM_WARN ? 'hot' : '');
               cell.style.backgroundColor = shade(v);
               cell.textContent = v === 0 ? '0' : v.toFixed(2);
               cell.title = rowFluor.name + ' \u00d7 ' + colFluor.name + ': ' + v.toFixed(3);
@@ -403,9 +518,14 @@
 
       function load() {
         panels = [];
+        totalAntibodies = null;
         const text = data.textContent.trim();
         if (text) {
-          try { panels = JSON.parse(text); } catch (error) { panels = []; }
+          try {
+            const parsed = JSON.parse(text);
+            panels = parsed.panels || [];
+            totalAntibodies = parsed.total === undefined ? null : parsed.total;
+          } catch (error) { panels = []; }
         }
         section.hidden = panels.length === 0;
         count.textContent = panels.length;

@@ -14,6 +14,8 @@ The tool is hosted online at https://samesalamander5710.github.io/PanelAssigner/
 - Automatic fluorophore name matching against a reference similarity matrix
 - Detector-based substitution for fluorophores not in the reference matrix
 - Similarity matrix plot of any result panel (WebUI only), below the results
+- "Fit at most N antibodies" limit (WebUI, or `max_assigned` in Python): searches for the best panels with fewer antibodies than the maximum. This is no slower than the full search, usually faster
+- WebUI warning for fluorophore pairs with a similarity of 0.9 or more in the shown panel, with advice on how far to lower the limit
 - Parallel execution across multiple CPU cores
 
 ## Input Format

@@ -51,24 +51,31 @@ def parse_backbone(text):
     return {ab: fls[0] for ab, fls in pairs.items() if fls}
 
 
-def setup(text, top_n=3, backbone_text=""):
-    """Every worker runs this with the same input and builds the same task list."""
+def setup(text, top_n=3, backbone_text="", max_fit=""):
+    """Every worker runs this with the same input and builds the same task list.
+
+    `max_fit` is the "fit at most N antibodies" limit; blank means no limit."""
     try:
         if ALIAS_ERROR:
             raise ValueError(f"Could not load fluorophore aliases: {ALIAS_ERROR}")
         top_n = int(top_n)
+        max_fit = str(max_fit).strip()
+        if max_fit and not max_fit.isdigit():
+            raise ValueError('"Fit at most" must be a whole number of antibodies.')
+        max_assigned = int(max_fit) if max_fit else None
         backbone = parse_backbone(backbone_text)
         antibodies = parse_pasted(text, required=not backbone)
         data = P.prepare_search(
             antibodies, SIM_DF, SIM_NAMES, DET_MAP, top_n,
-            backbone=backbone, aliases=ALIASES,
+            backbone=backbone, aliases=ALIASES, max_assigned=max_assigned,
         )
         if data is None:
             raise ValueError("No assignable antibody/fluorophore pairs.")
         tasks = P.make_search_tasks(data, TARGET_TASKS)
         STATE.update(data=data, tasks=tasks, top_n=top_n,
                      total=len(data["original_order"]),
-                     max_count=data["max_count"])
+                     max_count=data["max_count"],
+                     max_possible=data["max_possible"])
         return json.dumps({"ok": True, "n_tasks": len(tasks),
                            "bound": repr(P.seed_bound(data))})
     except Exception as exc:
@@ -111,12 +118,14 @@ def finalize(results_json):
     matrices = []
     for complexity, _, panel in best:
         labels = list(panel["assignments"].values())  # same order as the table
+        antibody_of = {fl: ab for ab, fl in panel["assignments"].items()}
         backbone_fluors = set(panel.get("backbone", {}).values())
         matrix = P.panel_similarity_matrix(STATE["data"], labels)
         matrices.append({
             "ci": complexity if math.isfinite(complexity) else None,
             "fluors": [{
                 "name": fl,
+                "antibody": antibody_of[fl],
                 "backbone": fl in backbone_fluors,
                 "status": ("unmapped" if fl in panel["unmapped_fluors"]
                            else "substituted" if fl in panel["substitutions"] else ""),
@@ -175,15 +184,21 @@ def finalize(results_json):
                 f'<div class="substitution-row">{esc(fluor)} &rarr; {esc(substituted)}</div>'
             )
 
+    if STATE["max_count"] < STATE["max_possible"]:
+        size = (f"Panel size limited to {STATE['max_count']}/{STATE['total']} "
+                f"({STATE['max_possible']} possible). ")
+    else:
+        size = f"Maximum panel size: {STATE['max_count']}/{STATE['total']}. "
     summary = (
-        f"Maximum panel size: {STATE['max_count']}/{STATE['total']}. "
+        size +
         f"Fluorophore sets scored: {evaluated:,} (branches pruned: {pruned:,})."
     )
     return json.dumps({
         "summary": summary,
         "html": "".join(parts),
         "substitutions_html": "".join(substitution_parts),
-        "matrices_json": json.dumps(matrices, allow_nan=False),
+        "matrices_json": json.dumps({"total": STATE["total"], "panels": matrices},
+                                    allow_nan=False),
     })
 
 
