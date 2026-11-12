@@ -14,9 +14,7 @@ The tool is hosted online at https://samesalamander5710.github.io/PanelAssigner/
 - Automatic fluorophore name matching against a reference similarity matrix
 - Detector-based substitution for fluorophores not in the reference matrix
 - Similarity matrix plot of any result panel (WebUI only), below the results
-- "Fit at most N antibodies" limit (WebUI, or `max_assigned` in Python): searches for the best panels with fewer antibodies than the maximum. This is no slower than the full search, usually faster
-- WebUI: suggests the best 1 to 5 extra fluorophores to add to a chosen result panel (`suggest_additions` in Python), ranked by the resulting complexity, with the extended similarity matrix
-- WebUI warning for fluorophore pairs with a similarity of 0.9 or more in the shown panel, with advice on how far to lower the limit
+- Suggests the best 1-5 extra fluorophores to add to a chosen result panel (WebUI; `suggest_additions` in Python), ranked by the resulting complexity, with the extended similarity matrix
 - Parallel execution across multiple CPU cores
 
 ## Input Format
@@ -43,16 +41,19 @@ Each result includes:
 
 Clone the repo, then:
 
-```bash
-uv sync
-
-# Save your input data in Data/input.csv, then
-uv run .\Panel_optimized.py
-```
-
-The WebUI can be run locally at http://localhost:8000/: 
+Run the WebUI locally at http://localhost:8000/: 
 
 ```bash
 python -m http.server 
 ```
+
+Or, to use the python scripts directly,
+
+```bash
+uv sync
+
+# Save your input data in Data (input.csv, input_backbone.csv), then
+uv run .\Panel_optimized.py
+```
+
 Requires Python 3.12+.
