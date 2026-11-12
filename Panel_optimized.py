@@ -204,24 +204,29 @@ def _normalize_antibody(name: str) -> str:
 def load_backbone(csv_path: str) -> Dict[str, str]:
     """Read fixed backbone assignments from CSV; the header is optional.
 
-    Each antibody keeps its first assignment. A missing file means no backbone.
+    Each antibody keeps its first assignment. A row with a single value is a
+    bare fluorophore and gets an automatic antibody name (Avoid_1, Avoid_2,
+    ...). A missing file means no backbone.
     """
     if not os.path.exists(csv_path):
         return {}
 
     backbone: Dict[str, str] = {}
     seen_antibodies: set = set()
+    auto = 0
     with open(csv_path, "r", newline="", encoding="utf-8-sig") as handle:
         reader = csv.reader(handle)
         for row in reader:
-            if len(row) < 2:
+            fields = [field.strip() for field in row if field.strip()]
+            if not fields:
                 continue
-            antibody = (row[0] or "").strip()
-            fluor = (row[1] or "").strip()
-            if not antibody or not fluor:
-                continue
-            if antibody.lower() == "antibody" and fluor.lower() == "fluorophore":
-                continue
+            if len(fields) >= 2:
+                antibody, fluor = fields[0], fields[1]
+                if antibody.lower() == "antibody" and fluor.lower() == "fluorophore":
+                    continue
+            else:
+                auto += 1
+                antibody, fluor = f"Avoid_{auto}", fields[0]
             key = _normalize_antibody(antibody)
             if key in seen_antibodies:
                 continue

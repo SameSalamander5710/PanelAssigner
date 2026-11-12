@@ -41,14 +41,33 @@ def parse_pasted(text, required=True):
 
 
 def parse_backbone(text):
-    """Parse optional fixed backbone pairs; the first row per antibody wins."""
+    """Parse optional fixed backbone entries; the first row per antibody wins.
+
+    A row with a single value is a bare fluorophore and gets an automatic
+    antibody name (Avoid_1, Avoid_2, ...); rows with two values are treated as
+    Antibody/Fluorophore pairs."""
     text = (text or "").strip()
     if not text:
         return {}
-    pairs = parse_pasted(text, required=False)
-    if not pairs:
+    delim = "\t" if "\t" in text else ("," if "," in text else ";")
+    backbone = {}
+    auto = 0
+    for row in csv.reader(io.StringIO(text), delimiter=delim):
+        fields = [field.strip() for field in row if field.strip()]
+        if not fields:
+            continue
+        if len(fields) >= 2:
+            ab, fl = fields[0], fields[1]
+            if ab.lower() == "antibody" and fl.lower() == "fluorophore":
+                continue
+        else:
+            auto += 1
+            ab, fl = f"Avoid_{auto}", fields[0]
+        if ab not in backbone:
+            backbone[ab] = fl
+    if not backbone:
         raise ValueError("No Antibody/Fluorophore pairs found in the fixed backbone.")
-    return {ab: fls[0] for ab, fls in pairs.items() if fls}
+    return backbone
 
 
 def setup(text, top_n=10, backbone_text="", max_fit=""):
