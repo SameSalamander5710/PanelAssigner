@@ -12,6 +12,18 @@ matrix_data = document.getElementById("matrix-data")  # index.html draws the plo
 suggest_btn = document.getElementById("suggest-run")
 suggest_status = document.getElementById("suggest-status")
 suggest_data = document.getElementById("suggest-data")  # ... and the suggestions from this
+mapped_info = document.getElementById("requiremapped-info")  # hover notes for the matrix option
+mapped_tip = document.getElementById("requiremapped-tip")
+
+
+def set_mapped_info(notes, has_unmapped=False):
+    """Put the per-run notes (unmapped, dropped, merged) in the hover text."""
+    base = mapped_info.getAttribute("data-info") or ""
+    mapped_tip.textContent = base + ("\n\n" + "\n".join(notes) if notes else "")
+    if has_unmapped:
+        mapped_info.classList.add("has-unmapped")
+    else:
+        mapped_info.classList.remove("has-unmapped")
 
 
 async def start():
@@ -56,6 +68,7 @@ async def compute(event):
     matrix_data.textContent = ""
     suggest_data.textContent = ""
     suggest_status.innerText = ""
+    set_mapped_info([])
     status.innerText = "Computing on " + str(len(pool)) + " workers..."
     t0 = time.time()
     state = {"next": 0, "results": [], "known": [], "bound": None, "error": None}
@@ -71,6 +84,7 @@ async def compute(event):
     else:
         res = json.loads(await pool[0].finalize("[" + ",".join(state["results"]) + "]"))
         status.innerText = res["summary"] + " Time: " + str(round(time.time() - t0, 1)) + " s."
+        set_mapped_info(res.get("notes") or [], res.get("has_unmapped", False))
         out.innerHTML = res["html"]
         subs.innerHTML = res["substitutions_html"]
         matrix_data.textContent = res["matrices_json"]

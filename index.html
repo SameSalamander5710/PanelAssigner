@@ -37,6 +37,54 @@
       gap: .5rem .75rem;
     }
     .topn-line { white-space: nowrap; }
+    .mapped-line { flex-basis: 100%; }
+    .topn-line label { display: inline; margin-top: 0; }
+    .info-icon {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.1rem;
+      height: 1.1rem;
+      margin-left: .35rem;
+      border-radius: 50%;
+      border: 1px solid #9aa0a6;
+      background: #fff;
+      color: #000;
+      font-size: .75rem;
+      font-weight: 700;
+      line-height: 1;
+      cursor: help;
+      user-select: none;
+      vertical-align: middle;
+    }
+    .info-icon.has-unmapped {
+      border-color: #2563eb;
+      background: #2563eb;
+      color: #fff;
+    }
+    .info-tip {
+      display: none;
+      position: absolute;
+      top: calc(100% + .4rem);
+      left: calc(100% + .4rem);
+      z-index: 10;
+      width: max-content;
+      max-width: 30vw;
+      padding: .5rem .65rem;
+      border-radius: .25rem;
+      background: #333;
+      color: #fff;
+      font-size: .8rem;
+      font-weight: 400;
+      line-height: 1.35;
+      white-space: pre-line;
+      text-align: left;
+      overflow-wrap: anywhere;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
+    }
+    .info-icon:hover .info-tip,
+    .info-icon:focus .info-tip { display: block; }
     #status { margin: 0; font-size: .85rem; }
     .output-panel { display: flex; flex-direction: column; min-width: 0; gap: .625rem 1rem; }
     .output-label { font-weight: 600; }
@@ -93,8 +141,6 @@
     .results-table .num { text-align: right; }
     .results-table .ci-row th,
     .results-table .ci-row td { background: #f2f2f2; font-weight: 600; }
-    .results-table .note-row th,
-    .results-table .note-row td { background: #fff3bf; font-weight: 600; }
     .results-table .assigned,
     .legend .assigned { background: #d9f2d9; }
     .results-table .substituted,
@@ -189,7 +235,7 @@
       <button id="run" disabled>Compute</button>
       <div class="topn-line">Show top <input id="topn" type="number" value="10" min="1"> panels.</div>
       <div class="topn-line" title="Largest panel to attempt. Lower it to leave out antibodies whose fluorophores clash.">Fit at most <input id="maxfit" type="number" min="1"> of <span id="maxfit-total">0</span> antibodies.</div>
-      <div class="topn-line" title="Fluorophores that are not in the similarity matrix and have no substitute are otherwise treated as overlapping with nothing, which makes panels containing them look better than they are. Antibodies left without any option stay unassigned."><label><input id="requiremapped" type="checkbox"> Only use fluorophores that are in the matrix</label></div>
+      <div class="topn-line mapped-line"><label><input id="requiremapped" type="checkbox"> Only use fluorophores that are in the matrix</label><span id="requiremapped-info" class="info-icon" role="img" aria-label="More information" tabindex="0" data-info="Fluorophores that are not in the similarity matrix and have no substitute are otherwise treated as overlapping with nothing, which makes panels containing them look better than they are. Antibodies left without any option stay unassigned.">!<span id="requiremapped-tip" class="info-tip" role="tooltip">Fluorophores that are not in the similarity matrix and have no substitute are otherwise treated as overlapping with nothing, which makes panels containing them look better than they are. Antibodies left without any option stay unassigned.</span></span></div>
       <p id="status">Loading 4 Python workers (first visit takes a while)...</p>
     </div>
     <div class="output-panel">

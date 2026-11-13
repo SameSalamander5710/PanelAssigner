@@ -217,19 +217,10 @@ def finalize(results_json):
     parts.append('</tbody><tfoot><tr class="ci-row"><th colspan="2">Matrix_CI</th>')
     for c, _, _ in best:
         parts.append(f'<td class="num">{c:.4f}</td>')
-    parts.append("</tr>")
+    parts.append("</tr></tfoot></table>")
     # Fluorophores without similarity data count as overlapping with nothing,
-    # which flatters the Matrix_CI above, so say how many each panel has.
+    # which flatters the Matrix_CI above; the hover notes say how many.
     n_unmapped = [len(panel["unmapped_fluors"]) for _, _, panel in best]
-    if any(n_unmapped):
-        parts.append(
-            '<tr class="note-row"><th colspan="2" title="Fluorophores that are not in the '
-            'similarity matrix and have no substitute are treated as overlapping with '
-            'nothing, so the Matrix_CI is better than the real one.">Unmapped</th>'
-        )
-        parts.extend(f'<td class="num">{n}</td>' for n in n_unmapped)
-        parts.append("</tr>")
-    parts.append("</tfoot></table>")
 
     substitutions = sorted({
         (fluor, substituted)
@@ -266,10 +257,10 @@ def finalize(results_json):
     if STATE["merged"]:
         notes.append("Treated as the same antibody: " + ", ".join(
             f"{gone} = {kept}" for gone, kept in STATE["merged"]) + ".")
-    if notes:
-        summary += " " + " ".join(notes)
     return json.dumps({
         "summary": summary,
+        "notes": notes,
+        "has_unmapped": with_unmapped > 0,
         "html": "".join(parts),
         "substitutions_html": "".join(substitution_parts),
         "matrices_json": json.dumps({"total": STATE["total"], "panels": matrices},
