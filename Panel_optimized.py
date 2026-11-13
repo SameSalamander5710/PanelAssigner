@@ -32,7 +32,6 @@ from functools import lru_cache
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
-import pandas as pd
 
 
 def load_antibodies(csv_path: str) -> Dict[str, List[str]]:
@@ -163,7 +162,7 @@ def canonicalize_fluorophore(
 
 
 def _canonicalize_reference(
-    sim_df: pd.DataFrame,
+    sim_df: SimilarityMatrix,
     sim_names: Optional[Sequence[str]],
     det_map: Optional[Dict[str, List[str]]],
     aliases: Optional[Sequence[Tuple[str, str]]],
@@ -173,6 +172,7 @@ def _canonicalize_reference(
     Input and reference then meet at the same canonical name, however either
     one is spelled (e.g. "Brilliant Violet 421" in the similarity matrix).
     """
+    sim_df = _as_matrix(sim_df)
     mapping = {
         name: canonicalize_fluorophore(name, aliases)
         for name in list(sim_df.index) + list(sim_df.columns)
@@ -185,7 +185,7 @@ def _canonicalize_reference(
                 f"Similarity matrix names {other!r} and {name!r} "
                 f"both mean {mapping[name]!r}; keep only one"
             )
-    sim_df = sim_df.rename(index=mapping, columns=mapping)
+    sim_df = sim_df.renamed(mapping)
     if sim_names is not None:
         sim_names = [canonicalize_fluorophore(n, aliases) for n in sim_names]
     if det_map:
@@ -235,24 +235,91 @@ def load_backbone(csv_path: str) -> Dict[str, str]:
     return backbone
 
 
-def load_similarity_matrix(sim_path: str) -> Tuple[pd.DataFrame, List[str]]:
+class SimilarityMatrix:
+    """A similarity table: row names, column names and a float array.
+
+    This is all the search needs from the matrix. It replaces a pandas
+    DataFrame so that the web version only has to load numpy; a DataFrame
+    passed to the public functions still works (see `_as_matrix`).
+    """
+
+    def __init__(self, index: Sequence[str], columns: Sequence[str], values) -> None:
+        self.index: List[str] = list(index)
+        self.columns: List[str] = list(columns)
+        self.values = np.asarray(values, dtype=np.float64).reshape(len(self.index), len(self.columns))
+
+    def to_numpy(self) -> np.ndarray:
+        return self.values
+
+    def renamed(self, mapping: Dict[str, str]) -> "SimilarityMatrix":
+        return SimilarityMatrix(
+            [mapping.get(n, n) for n in self.index],
+            [mapping.get(n, n) for n in self.columns],
+            self.values,
+        )
+
+    def aligned(self) -> np.ndarray:
+        """Values with the columns put in row order (NaN where a row has no column)."""
+        position: Dict[str, int] = {}
+        for j, name in enumerate(self.columns):
+            position.setdefault(name, j)
+        out = np.full((len(self.index), len(self.index)), np.nan)
+        for i, name in enumerate(self.index):
+            j = position.get(name)
+            if j is not None:
+                out[:, i] = self.values[:, j]
+        return out
+
+
+def _as_matrix(sim) -> SimilarityMatrix:
+    """Accept a SimilarityMatrix or anything shaped like a DataFrame."""
+    if isinstance(sim, SimilarityMatrix):
+        return sim
+    return SimilarityMatrix(
+        [str(n) for n in sim.index], [str(n) for n in sim.columns], np.asarray(sim, dtype=np.float64)
+    )
+
+
+def _read_table(path: str) -> List[List[str]]:
+    """All non-blank CSV rows (a UTF-8 BOM is ignored)."""
+    with open(path, "r", newline="", encoding="utf-8-sig") as handle:
+        return [row for row in csv.reader(handle) if any(cell.strip() for cell in row)]
+
+
+def _to_float(text: str) -> float:
+    try:
+        return float(text)
+    except ValueError:
+        return float("nan")  # unreadable cells count as missing, as before
+
+
+def load_similarity_matrix(sim_path: str) -> Tuple[SimilarityMatrix, List[str]]:
     """Load the similarity matrix; its first column contains row names."""
-    df = pd.read_csv(sim_path)
-    first_col = df.columns[0]
-    df = df.set_index(first_col)
-    df.index = df.index.astype(str).str.strip()
-    df.columns = df.columns.astype(str).str.strip()
-    df = df.apply(pd.to_numeric, errors="coerce")
-    return df, df.index.tolist()
+    rows = _read_table(sim_path)
+    columns = [cell.strip() for cell in rows[0][1:]]
+    index: List[str] = []
+    values = np.full((len(rows) - 1, len(columns)), np.nan)
+    for i, row in enumerate(rows[1:]):
+        index.append(row[0].strip())
+        for j, cell in enumerate(row[1:1 + len(columns)]):
+            values[i, j] = _to_float(cell)
+    return SimilarityMatrix(index, columns, values), list(index)
+
+
+def _detector_rows(det_path: str):
+    """Yield (detector, fluorophore, row dict by column name) for each filled row."""
+    rows = _read_table(det_path)
+    header = [cell.strip() for cell in rows[0]]
+    for row in rows[1:]:
+        record = {name: (row[k].strip() if k < len(row) else "") for k, name in enumerate(header)}
+        if record.get("Detector") and record.get("Fluorophore"):
+            yield record["Detector"], record["Fluorophore"], record
 
 
 def load_detector_map(det_path: str) -> Dict[str, List[str]]:
     """Load detector-to-fluorophore mapping."""
-    df = pd.read_csv(det_path)
     result: Dict[str, List[str]] = {}
-    for _, row in df.iterrows():
-        detector = str(row["Detector"]).strip()
-        fluor = str(row["Fluorophore"]).strip()
+    for detector, fluor, _ in _detector_rows(det_path):
         result.setdefault(detector, []).append(fluor)
     return result
 
@@ -269,14 +336,10 @@ def load_fluorophore_types(det_path: str) -> Dict[str, str]:
     Returns an empty dict when the file has no Type column, which means no
     fluorophore is filtered out of the suggestions.
     """
-    df = pd.read_csv(det_path)
-    if "Type" not in df.columns:
-        return {}
     types: Dict[str, str] = {}
-    for _, row in df.iterrows():
-        fluor, kind = str(row["Fluorophore"]).strip(), row["Type"]
-        if pd.notna(kind) and str(kind).strip():
-            types.setdefault(fluor, str(kind).strip())
+    for _, fluor, record in _detector_rows(det_path):
+        if record.get("Type"):
+            types.setdefault(fluor, record["Type"])
     return types
 
 
@@ -335,7 +398,7 @@ def _maximum_matching(
 
 
 def _prepare_similarity(
-    sim_df: pd.DataFrame,
+    sim_df: SimilarityMatrix,
     sim_names: Sequence[str],
     fluorophores: Iterable[str],
     det_map: Optional[Dict[str, List[str]]],
@@ -348,12 +411,12 @@ def _prepare_similarity(
     sim_names_normalized = {
         normalize_fluorophore(name): name for name in sim_names
     }
+    sim_df = _as_matrix(sim_df)
     matrix_names = list(sim_df.index)
     matrix_index = {name: i for i, name in enumerate(matrix_names)}
 
     # Align rows and columns by name, then symmetrize once.
-    aligned = sim_df.reindex(index=matrix_names, columns=matrix_names)
-    base = aligned.to_numpy(dtype=np.float64)
+    base = sim_df.aligned()
     base = (base + base.T) / 2.0
 
     mapped_index: Dict[str, int] = {}
@@ -451,7 +514,7 @@ def _set_complexity(fluor_set: Sequence[str], data: dict) -> float:
 
 def prepare_search(
     antibodies: Dict[str, List[str]],
-    sim_df: pd.DataFrame,
+    sim_df: SimilarityMatrix,
     sim_names: Optional[Sequence[str]],
     det_map: Optional[Dict[str, List[str]]],
     top_n: int,
@@ -727,7 +790,7 @@ MAX_SUGGESTED = 5  # adding more than this at once gets slow and is rarely usefu
 
 
 def _suggestion_pool(
-    sim_df: pd.DataFrame,
+    sim_df: SimilarityMatrix,
     sim_names: Optional[Sequence[str]],
     det_map: Optional[Dict[str, List[str]]],
     panel_fluors: Sequence[str],
@@ -804,7 +867,7 @@ def _suggestion_pool(
 
 
 def eligible_fluorophore_count(
-    sim_df: pd.DataFrame,
+    sim_df: SimilarityMatrix,
     sim_names: Optional[Sequence[str]],
     det_map: Optional[Dict[str, List[str]]],
     panel_fluors: Sequence[str],
@@ -826,7 +889,7 @@ def eligible_fluorophore_count(
 
 
 def suggest_additions(
-    sim_df: pd.DataFrame,
+    sim_df: SimilarityMatrix,
     sim_names: Optional[Sequence[str]],
     det_map: Optional[Dict[str, List[str]]],
     panel_fluors: Sequence[str],
@@ -916,7 +979,7 @@ def suggest_additions(
 def find_best_panels(
     antibodies: Optional[Dict[str, List[str]]] = None,
     csv_path: Optional[str] = None,
-    sim_df: Optional[pd.DataFrame] = None,
+    sim_df: Optional[SimilarityMatrix] = None,
     sim_names: Optional[Sequence[str]] = None,
     det_map: Optional[Dict[str, List[str]]] = None,
     sim_path: Optional[str] = None,

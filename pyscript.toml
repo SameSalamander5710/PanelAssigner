@@ -1,4 +1,4 @@
-packages = ["numpy", "pandas"]
+packages = ["numpy"]
 
 [files]
 "./Panel_optimized.py" = "./Panel_optimized.py"
