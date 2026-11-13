@@ -512,6 +512,72 @@ def _set_complexity(fluor_set: Sequence[str], data: dict) -> float:
     )
 
 
+_PAIR_SAFE = 1.0 - 1e-9  # closer to 1 than this, leave the pair to the eigenvalue solve
+
+
+class _SetComplexity:
+    """Complexity of a fixed set plus fluorophores added one after another.
+
+    The similarity matrix of the whole set is kept in a work array that grows
+    row by row, so adding a fluorophore costs one row lookup and one
+    eigenvalue solve, instead of rebuilding the matrix from names. `M` is the
+    full similarity table (see `_similarity_submatrix`) of every fluorophore
+    that can occur, and fluorophores are given by their row in it.
+    """
+
+    def __init__(self, M: np.ndarray, base_rows: Sequence[int], max_extra: int) -> None:
+        self.M = M
+        self.nb = len(base_rows)
+        size = self.nb + max_extra
+        self.rows = np.zeros(size, dtype=np.intp)
+        self.rows[: self.nb] = base_rows
+        self.W = np.zeros((size, size))  # only the lower triangle is used
+        for r in range(self.nb):
+            self.W[r, :r] = M[base_rows[r], self.rows[:r]]
+            self.W[r, r] = 1.0
+        self.finite = bool(np.isfinite(M).all())
+        self.signed = bool((M < 0).any())
+
+    def push(self, depth: int, row: int) -> float:
+        """Make `row` the added fluorophore number `depth` (0 = first).
+
+        Returns its largest similarity to the fluorophores before it. By
+        eigenvalue interlacing, a set containing a pair with similarity s has
+        complexity of at least sqrt((1 + s) / (1 - s)), so this can rule a
+        set out without solving for eigenvalues.
+        """
+        m = self.nb + depth
+        self.rows[m] = row
+        self.W[m, m] = 1.0
+        if m == 0:
+            return 0.0
+        values = self.M[row, self.rows[:m]]
+        self.W[m, :m] = values
+        return float(np.abs(values).max() if self.signed else values.max())
+
+    def complexity(self, depth: int) -> float:
+        """Complexity with the first `depth + 1` added fluorophores (-1: none)."""
+        m = self.nb + depth + 1
+        if m < 2:
+            return 1.0
+        S = self.W[:m, :m]
+        if not self.finite and not np.isfinite(S).all():
+            return INF
+        eigenvalues = np.linalg.eigvalsh(S)
+        smallest = eigenvalues[0]
+        if not np.isfinite(eigenvalues).all() or smallest <= 0:
+            return INF
+        return float(np.sqrt(eigenvalues[-1] / smallest))
+
+
+def _pair_limit(limit: float) -> float:
+    """Pair similarity above which a set is provably worse than `limit`."""
+    if limit == INF:
+        return 2.0  # nothing is that similar
+    bound = limit * (1.0 + _RTOL) + _ATOL
+    return (bound * bound - 1.0) / (bound * bound + 1.0)
+
+
 def prepare_search(
     antibodies: Dict[str, List[str]],
     sim_df: SimilarityMatrix,
@@ -609,7 +675,22 @@ def prepare_search(
     base, mapped_index, substitutions, unmapped = _prepare_similarity(
         sim_df, sim_names, list(all_fluors) + backbone_fluors, det_map
     )
+    # Search tables. The search tries the most-overlapping fluorophores first:
+    # their conflicts show up near the top of the tree, so more of it is cut
+    # off. Results do not depend on this order. `all_fluors` stays
+    # alphabetical for everything that is shown.
+    labels = list(backbone_fluors) + list(all_fluors)
+    M = _similarity_submatrix(labels, base, mapped_index)
+    n_free = len(all_fluors)
+    overlap = (M[len(backbone_fluors):, len(backbone_fluors):].sum(axis=1) - 1.0) / max(n_free - 1, 1)
+    overlap = np.nan_to_num(overlap, nan=0.0)
+    ranked = sorted(range(n_free), key=lambda i: (-overlap[i], all_fluors[i]))
+    search_order = [all_fluors[i] for i in ranked]
     return {
+        "search_order": search_order,
+        "search_pos": {f: i for i, f in enumerate(search_order)},
+        "label_pos": {f: i for i, f in enumerate(labels)},
+        "M": M,
         "all_fluors": all_fluors, "max_count": max_count,
         "max_possible": max_possible,
         "free_max_count": free_max_count,
@@ -673,17 +754,21 @@ def next_bound(bound: float, known: Iterable[float], top_n: int) -> float:
 
 
 def make_search_tasks(data: dict, target: int = 32) -> list:
-    """Disjoint feasible-prefix subtrees, most promising (lowest prefix score) first."""
-    all_fluors, afb, k = data["all_fluors"], data["antibodies_by_fluor"], data["free_max_count"]
+    """Disjoint feasible-prefix subtrees, most promising (lowest prefix score) first.
+
+    A task is (start, prefix): the fluorophores of `prefix` are fixed and the
+    rest are taken from `search_order[start:]`.
+    """
+    order, afb, k = data["search_order"], data["antibodies_by_fluor"], data["free_max_count"]
     frontier = [(0, ())]
     for _ in range(min(k, 4)):
         expanded = []
         for start, prefix in frontier:
             needed = k - len(prefix)
-            if needed <= 0 or len(all_fluors) - start < needed:
+            if needed <= 0 or len(order) - start < needed:
                 continue
-            for i in range(start, len(all_fluors) - needed + 1):
-                candidate = prefix + (all_fluors[i],)
+            for i in range(start, len(order) - needed + 1):
+                candidate = prefix + (order[i],)
                 if len(_maximum_matching(candidate, afb)) == len(candidate):
                     expanded.append((i + 1, candidate))
         if not expanded:
@@ -702,10 +787,15 @@ def search_subtree(data: dict, task: tuple, bound: float = INF):
     Search one prefix subtree. `bound` is a known upper limit on the top_n-th
     best complexity (inf = none). Returns (best, evaluated, pruned) where best
     is a list of (complexity, fluorophore tuple, panel dict), at most top_n.
+
+    Fluorophores are tried in `search_order`, but every reported panel, its
+    complexity and its tie-breaking use the alphabetical order, so the result
+    does not depend on the search order.
     """
     start, prefix = task
-    all_fluors, k = data["all_fluors"], data["free_max_count"]
+    order, k = data["search_order"], data["free_max_count"]
     afb = data["antibodies_by_fluor"]
+    all_fluors = data["all_fluors"]
     original_order = data["original_order"]
     free_original_order = data["free_original_order"]
     backbone_assignments = data["backbone_assignments"]
@@ -715,15 +805,23 @@ def search_subtree(data: dict, task: tuple, bound: float = INF):
     evaluated = 0
     pruned = 0
 
+    label_pos = data["label_pos"]
+    n_order = len(order)
+    rows = [label_pos[f] for f in order]  # row of each fluorophore in M
+    options = [afb[f] for f in order]  # its antibodies
+    builder = _SetComplexity(data["M"], [label_pos[f] for f in backbone_fluors], k)
+
     def limit() -> float:
         return min(bound, best[-1][0]) if len(best) >= top_n else bound
 
-    def leaf(chosen, complexity, matching) -> None:
+    def leaf(chosen: List[int]) -> None:
         nonlocal evaluated
         evaluated += 1
-        fluor_set = tuple(chosen)
+        fluor_set = tuple(sorted(order[i] for i in chosen))
+        complexity = _set_complexity(fluor_set, data)  # exact value, alphabetical order
         if len(best) >= top_n and (complexity, fluor_set) >= (best[-1][0], best[-1][1]):
             return
+        matching = _maximum_matching(fluor_set, afb)
         by_antibody = {matching[f]: f for f in matching}
         assignments = {}
         for antibody in original_order:
@@ -748,41 +846,81 @@ def search_subtree(data: dict, task: tuple, bound: float = INF):
         if len(best) > top_n:
             best.pop()
 
-    def search(next_start, chosen) -> None:
+    def add(matched: Dict[str, int], i: int) -> Optional[Dict[str, int]]:
+        """The antibody matching of the chosen fluorophores plus `i`, or None.
+
+        `matched` maps antibody -> fluorophore and covers every chosen
+        fluorophore, so one augmenting-path search from the new one suffices.
+        """
+        new = dict(matched)
+        for antibody in options[i]:
+            if antibody not in new:  # a free antibody: nothing to rearrange
+                new[antibody] = i
+                return new
+        seen: set = set()
+
+        def augment(j: int) -> bool:
+            for antibody in options[j]:
+                if antibody in seen:
+                    continue
+                seen.add(antibody)
+                holder = new.get(antibody)
+                if holder is None or augment(holder):
+                    new[antibody] = j
+                    return True
+            return False
+
+        return new if augment(i) else None
+
+    def search(next_start: int, chosen: List[int], matched: Dict[str, int]) -> None:
         nonlocal pruned
-        needed = k - len(chosen)
-        if len(all_fluors) - next_start < needed:
+        depth = len(chosen)
+        needed = k - depth
+        if n_order - next_start < needed:
             return
-        for i in range(next_start, len(all_fluors) - needed + 1):
-            chosen.append(all_fluors[i])
-            matching = _maximum_matching(chosen, afb)
-            if len(matching) == len(chosen):
-                complexity = _set_complexity(chosen, data)
-                if _worse_than(complexity, limit()):
-                    pruned += 1  # complexity never decreases when adding more
-                elif needed == 1:
-                    leaf(chosen, complexity, matching)
-                else:
-                    search(i + 1, chosen)
-            chosen.pop()
+        for i in range(next_start, n_order - needed + 1):
+            grown = add(matched, i)
+            if grown is None:
+                continue  # no antibody assignment for these fluorophores
+            top_similarity = builder.push(depth, rows[i])
+            current = limit()
+            if current != INF and _PAIR_SAFE > top_similarity > _pair_limit(current):
+                pruned += 1  # one pair is already too similar
+                continue
+            if _worse_than(builder.complexity(depth), current):
+                pruned += 1  # complexity never decreases when adding more
+            elif needed == 1:
+                chosen.append(i)
+                leaf(chosen)
+                chosen.pop()
+            else:
+                chosen.append(i)
+                search(i + 1, chosen, grown)
+                chosen.pop()
 
     if k == 0:
-        leaf([], _set_complexity([], data), {})
+        leaf([])
         return best, evaluated, pruned
 
-    chosen = list(prefix)
-    if not chosen:
-        search(start, chosen)
+    chosen: List[int] = []
+    matched: Optional[Dict[str, int]] = {}
+    for f in prefix:
+        i = data["search_pos"][f]
+        matched = add(matched, i)
+        if matched is None:
+            return best, evaluated, pruned
+        builder.push(len(chosen), rows[i])
+        chosen.append(i)
+    if chosen:
+        complexity = builder.complexity(len(chosen) - 1)
+        if _worse_than(complexity, limit()):
+            pruned += 1
+        elif len(chosen) == k:
+            leaf(chosen)
+        else:
+            search(start, chosen, matched)
     else:
-        matching = _maximum_matching(chosen, afb)
-        if len(matching) == len(chosen):
-            complexity = _set_complexity(chosen, data)
-            if _worse_than(complexity, limit()):
-                pruned += 1
-            elif len(chosen) == k:
-                leaf(chosen, complexity, matching)
-            else:
-                search(start, chosen)
+        search(start, chosen, matched)
     return best, evaluated, pruned
 
 
