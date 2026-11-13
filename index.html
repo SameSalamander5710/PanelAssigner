@@ -415,24 +415,34 @@
       }
       // Mirrors worker.parse_backbone: pairs use the first column, while a row
       // with a single value is a bare fluorophore named Avoid_1, Avoid_2, ...
+      // A fluorophore listed again is ignored (the first row wins), as in
+      // Panel_optimized.prepare_search; only spelling variants are compared here.
+      function fluorKey(name) { return name.trim().replace(/\//g, '-').replace(/\s+/g, '').toLowerCase(); }
       function backboneAntibodies(text) {
         text = text.trim();
         if (!text) return [];
         const delimiter = text.indexOf('\t') >= 0 ? '\t' : (text.indexOf(',') >= 0 ? ',' : ';');
         const names = [];
+        const seenFluors = new Set();
         let auto = 0;
         text.split(/\r?\n/).forEach(function (line) {
           const fields = line.split(delimiter)
             .map(function (cell) { return cell.trim(); })
             .filter(function (cell) { return cell; });
           if (!fields.length) return;
+          let name, fluor;
           if (fields.length < 2) {
             auto += 1;
-            names.push('Avoid_' + auto);
-            return;
+            name = 'Avoid_' + auto;
+            fluor = fields[0];
+          } else {
+            if (fields[0].toLowerCase() === 'antibody' && fields[1].toLowerCase() === 'fluorophore') return;
+            name = fields[0];
+            fluor = fields[1];
           }
-          if (fields[0].toLowerCase() === 'antibody' && fields[1].toLowerCase() === 'fluorophore') return;
-          names.push(fields[0]);
+          if (seenFluors.has(fluorKey(fluor))) return;
+          seenFluors.add(fluorKey(fluor));
+          names.push(name);
         });
         return names;
       }

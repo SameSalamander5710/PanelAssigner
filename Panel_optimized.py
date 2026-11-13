@@ -481,22 +481,19 @@ def prepare_search(
     )
     fixed: Dict[str, str] = {}
     seen_backbone_antibodies: set = set()
+    seen_backbone_fluors: Dict[str, str] = {}
     for antibody, fluor in (backbone or {}).items():
         key = _normalize_antibody(antibody)
         if key in seen_backbone_antibodies:  # "CD3" vs "cd3": first one wins
             continue
+        fluor = canonicalize_fluorophore(fluor, aliases)
+        fluor_key = normalize_fluorophore(fluor)
+        if fluor_key in seen_backbone_fluors:  # same fluorophore again: first one wins
+            continue
         seen_backbone_antibodies.add(key)
-        fixed[antibody] = canonicalize_fluorophore(fluor, aliases)
+        seen_backbone_fluors[fluor_key] = antibody
+        fixed[antibody] = fluor
     backbone = fixed
-    seen_backbone_fluors: Dict[str, str] = {}
-    for antibody, fluor in backbone.items():
-        key = normalize_fluorophore(fluor)
-        if key in seen_backbone_fluors:
-            raise ValueError(
-                f"Backbone fluorophore {fluor!r} is assigned to both "
-                f"{seen_backbone_fluors[key]!r} and {antibody!r}"
-            )
-        seen_backbone_fluors[key] = antibody
 
     backbone_fluors = list(backbone.values())
     backbone_fluor_keys = set(seen_backbone_fluors)
