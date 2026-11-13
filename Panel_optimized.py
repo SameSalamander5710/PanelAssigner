@@ -196,6 +196,35 @@ def _canonicalize_reference(
     return sim_df, sim_names, det_map
 
 
+def canonical_types(
+    types: Optional[Dict[str, str]],
+    aliases: Optional[Sequence[Tuple[str, str]]],
+) -> Dict[str, str]:
+    """{normalized canonical fluorophore: lower-case Type}, see `prepare_reference`."""
+    return {
+        normalize_fluorophore(canonicalize_fluorophore(f, aliases)): kind.lower()
+        for f, kind in (types or {}).items()
+    }
+
+
+def prepare_reference(
+    sim_df: SimilarityMatrix,
+    sim_names: Optional[Sequence[str]],
+    det_map: Optional[Dict[str, List[str]]],
+    aliases: Optional[Sequence[Tuple[str, str]]],
+    types: Optional[Dict[str, str]] = None,
+):
+    """Put the reference data through the alias rules once.
+
+    Returns (sim_df, sim_names, det_map, types) to pass to `prepare_search`,
+    `suggest_additions` and `eligible_fluorophore_count` with
+    `canonical=True`. Those functions otherwise redo this on every call, which
+    is slow when it is repeated, e.g. for each result panel.
+    """
+    sim_df, sim_names, det_map = _canonicalize_reference(sim_df, sim_names, det_map, aliases)
+    return sim_df, sim_names, det_map, canonical_types(types, aliases)
+
+
 def _normalize_antibody(name: str) -> str:
     """Normalize antibody names for backbone clash detection."""
     return " ".join(name.strip().lower().split())
@@ -247,6 +276,7 @@ class SimilarityMatrix:
         self.index: List[str] = list(index)
         self.columns: List[str] = list(columns)
         self.values = np.asarray(values, dtype=np.float64).reshape(len(self.index), len(self.columns))
+        self._symmetric: Optional[np.ndarray] = None
 
     def to_numpy(self) -> np.ndarray:
         return self.values
@@ -269,6 +299,15 @@ class SimilarityMatrix:
             if j is not None:
                 out[:, i] = self.values[:, j]
         return out
+
+
+    def symmetrized(self) -> np.ndarray:
+        """Aligned values averaged with their transpose (computed once, read-only)."""
+        if self._symmetric is None:
+            aligned = self.aligned()
+            self._symmetric = (aligned + aligned.T) / 2.0
+            self._symmetric.flags.writeable = False
+        return self._symmetric
 
 
 def _as_matrix(sim) -> SimilarityMatrix:
@@ -415,9 +454,8 @@ def _prepare_similarity(
     matrix_names = list(sim_df.index)
     matrix_index = {name: i for i, name in enumerate(matrix_names)}
 
-    # Align rows and columns by name, then symmetrize once.
-    base = sim_df.aligned()
-    base = (base + base.T) / 2.0
+    # Rows and columns are aligned by name and symmetrized once per matrix.
+    base = sim_df.symmetrized()
 
     mapped_index: Dict[str, int] = {}
     substitutions: Dict[str, str] = {}
@@ -587,8 +625,12 @@ def prepare_search(
     backbone: Optional[Dict[str, str]] = None,
     aliases: Optional[Sequence[Tuple[str, str]]] = None,
     max_assigned: Optional[int] = None,
+    canonical: bool = False,
 ) -> Optional[dict]:
     """Build the read-only search data. Returns None if nothing is assignable.
+
+    `canonical=True` says that sim_df, sim_names and det_map already come from
+    `prepare_reference`, so they are not rewritten again.
 
     `max_assigned` caps the panel size (backbone included): the search then
     looks for the best panels fitting at most that many antibodies. None, or
@@ -605,9 +647,10 @@ def prepare_search(
         antibody: [canonicalize_fluorophore(f, aliases) for f in fluors]
         for antibody, fluors in antibodies.items()
     }
-    sim_df, sim_names, det_map = _canonicalize_reference(
-        sim_df, sim_names, det_map, aliases
-    )
+    if not canonical:
+        sim_df, sim_names, det_map = _canonicalize_reference(
+            sim_df, sim_names, det_map, aliases
+        )
     fixed: Dict[str, str] = {}
     seen_backbone_antibodies: set = set()
     seen_backbone_fluors: Dict[str, str] = {}
@@ -935,6 +978,7 @@ def _suggestion_pool(
     aliases: Optional[Sequence[Tuple[str, str]]] = None,
     types: Optional[Dict[str, str]] = None,
     allowed_types: Sequence[str] = SUGGESTED_TYPES,
+    canonical: bool = False,
 ) -> dict:
     """Prepare the eligible additions shared by the suggestion functions.
 
@@ -946,8 +990,13 @@ def _suggestion_pool(
     candidates to those whose Type is in `allowed_types`. A candidate with no
     Type listed stays eligible, so a missing entry never hides it silently.
     The panel itself is never filtered.
+
+    `canonical=True` says that the reference data and `types` come from
+    `prepare_reference`.
     """
-    sim_df, sim_names, det_map = _canonicalize_reference(sim_df, sim_names, det_map, aliases)
+    if not canonical:
+        sim_df, sim_names, det_map = _canonicalize_reference(sim_df, sim_names, det_map, aliases)
+        types = canonical_types(types, aliases)
     if sim_names is None:
         sim_names = list(sim_df.index)
 
@@ -958,15 +1007,11 @@ def _suggestion_pool(
         if normalize_fluorophore(name) not in taken
     ]
     if types:
-        type_of = {
-            normalize_fluorophore(canonicalize_fluorophore(f, aliases)): kind.lower()
-            for f, kind in types.items()
-        }
         allowed = {kind.lower() for kind in allowed_types}
         candidates = [
             c for c in candidates
-            if normalize_fluorophore(c) not in type_of  # no Type listed: keep
-            or type_of[normalize_fluorophore(c)] in allowed
+            if normalize_fluorophore(c) not in types  # no Type listed: keep
+            or types[normalize_fluorophore(c)] in allowed
         ]
     base, mapped_index, substitutions, _ = _prepare_similarity(
         sim_df, sim_names, panel + candidates, det_map
@@ -975,10 +1020,12 @@ def _suggestion_pool(
     taken |= {normalize_fluorophore(s) for s in substitutions.values()}
     candidates = [c for c in candidates if normalize_fluorophore(c) not in taken]
 
-    def complexity(extra: Sequence[str]) -> float:
-        return _complexity_for_set(panel + list(extra), base, mapped_index)
+    labels = panel + candidates
+    M = _similarity_submatrix(labels, base, mapped_index)
+    label_pos = {name: len(panel) + i for i, name in enumerate(candidates)}
+    builder = _SetComplexity(M, range(len(panel)), 1)
 
-    base_complexity = complexity([])
+    base_complexity = builder.complexity(-1)
     if not np.isfinite(base_complexity):
         raise ValueError(
             "Two fluorophores in this panel have identical spectra, so its "
@@ -990,7 +1037,8 @@ def _suggestion_pool(
     # sets are found early and the bound tightens quickly.
     singles = []
     for name in candidates:
-        c = complexity([name])
+        builder.push(0, label_pos[name])
+        c = builder.complexity(0)
         if np.isfinite(c):
             singles.append((c, name))
     singles.sort()
@@ -998,6 +1046,8 @@ def _suggestion_pool(
         "panel": panel,
         "base": base,
         "mapped_index": mapped_index,
+        "M": M,
+        "label_pos": label_pos,
         "base_complexity": base_complexity,
         "pool": [name for _, name in singles],
         "single_complexity": [c for c, _ in singles],
@@ -1012,6 +1062,7 @@ def eligible_fluorophore_count(
     aliases: Optional[Sequence[Tuple[str, str]]] = None,
     types: Optional[Dict[str, str]] = None,
     allowed_types: Sequence[str] = SUGGESTED_TYPES,
+    canonical: bool = False,
 ) -> int:
     """How many reference fluorophores could still be added to a panel.
 
@@ -1020,7 +1071,8 @@ def eligible_fluorophore_count(
     """
     try:
         return len(_suggestion_pool(
-            sim_df, sim_names, det_map, panel_fluors, aliases, types, allowed_types
+            sim_df, sim_names, det_map, panel_fluors, aliases, types, allowed_types,
+            canonical,
         )["pool"])
     except ValueError:
         return 0
@@ -1036,6 +1088,7 @@ def suggest_additions(
     aliases: Optional[Sequence[Tuple[str, str]]] = None,
     types: Optional[Dict[str, str]] = None,
     allowed_types: Sequence[str] = SUGGESTED_TYPES,
+    canonical: bool = False,
 ) -> dict:
     """Best sets of `n` extra fluorophores to add to an existing panel.
 
@@ -1057,7 +1110,8 @@ def suggest_additions(
     if not 1 <= n <= MAX_SUGGESTED:
         raise ValueError(f"Choose between 1 and {MAX_SUGGESTED} fluorophores to add.")
     context = _suggestion_pool(
-        sim_df, sim_names, det_map, panel_fluors, aliases, types, allowed_types
+        sim_df, sim_names, det_map, panel_fluors, aliases, types, allowed_types,
+        canonical,
     )
     panel = context["panel"]
     base = context["base"]
@@ -1066,9 +1120,6 @@ def suggest_additions(
     pool = context["pool"]
     single_complexity = context["single_complexity"]
 
-    def complexity(extra: Sequence[str]) -> float:
-        return _complexity_for_set(panel + list(extra), base, mapped_index)
-
     if len(pool) < n:
         raise ValueError(
             f"Only {len(pool)} suitable fluorophores are left in the reference "
@@ -1076,25 +1127,32 @@ def suggest_additions(
         )
 
     found: List[Tuple[float, Tuple[str, ...]]] = []
+    builder = _SetComplexity(context["M"], range(len(panel)), n)
+    pool_rows = [context["label_pos"][name] for name in pool]
 
     def limit() -> float:
         return found[-1][0] if len(found) >= top_n else INF
 
-    def extend(start: int, chosen: List[str]) -> None:
-        needed = n - len(chosen)
+    def extend(start: int, chosen: List[int]) -> None:
+        depth = len(chosen)
+        needed = n - depth
         for i in range(start, len(pool) - needed + 1):
-            if _worse_than(single_complexity[i], limit()):
+            current = limit()
+            if _worse_than(single_complexity[i], current):
                 break  # sorted: no later candidate can do better either
-            chosen.append(pool[i])
-            c = complexity(chosen)
-            if np.isfinite(c) and not _worse_than(c, limit()):
+            top_similarity = builder.push(depth, pool_rows[i])
+            if current != INF and _PAIR_SAFE > top_similarity > _pair_limit(current):
+                continue  # one pair is already too similar
+            c = builder.complexity(depth)
+            if np.isfinite(c) and not _worse_than(c, current):
+                chosen.append(i)
                 if needed == 1:
-                    found.append((c, tuple(chosen)))
+                    found.append((c, tuple(pool[j] for j in chosen)))
                     found.sort()
                     del found[top_n:]
                 else:
                     extend(i + 1, chosen)
-            chosen.pop()
+                chosen.pop()
 
     extend(0, [])
 

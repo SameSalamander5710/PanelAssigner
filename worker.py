@@ -16,6 +16,16 @@ try:
 except Exception as exc:  # a typo in the CSV is reported in the UI, not lost in the worker
     ALIASES, ALIAS_ERROR = [], str(exc)
 
+# Apply the alias rules to the reference data once, not on every Compute and Suggest.
+try:
+    REF_SIM, REF_NAMES, REF_DET, REF_TYPES = P.prepare_reference(
+        SIM_DF, SIM_NAMES, DET_MAP, ALIASES, TYPES
+    )
+    REF_ERROR = None
+except ValueError as exc:  # e.g. two matrix names that mean the same fluorophore
+    REF_SIM = REF_NAMES = REF_DET = REF_TYPES = None
+    REF_ERROR = str(exc)
+
 TARGET_TASKS = 32  # more, smaller subtrees = better load balancing and pruning
 STATE = {}
 
@@ -78,6 +88,8 @@ def setup(text, top_n=10, backbone_text="", max_fit=""):
     try:
         if ALIAS_ERROR:
             raise ValueError(f"Could not load fluorophore aliases: {ALIAS_ERROR}")
+        if REF_ERROR:
+            raise ValueError(REF_ERROR)
         top_n = int(top_n)
         max_fit = str(max_fit).strip()
         if max_fit and not max_fit.isdigit():
@@ -86,8 +98,9 @@ def setup(text, top_n=10, backbone_text="", max_fit=""):
         backbone = parse_backbone(backbone_text)
         antibodies = parse_pasted(text, required=not backbone)
         data = P.prepare_search(
-            antibodies, SIM_DF, SIM_NAMES, DET_MAP, top_n,
+            antibodies, REF_SIM, REF_NAMES, REF_DET, top_n,
             backbone=backbone, aliases=ALIASES, max_assigned=max_assigned,
+            canonical=True,
         )
         if data is None:
             raise ValueError("No assignable antibody/fluorophore pairs.")
@@ -144,7 +157,8 @@ def finalize(results_json):
         matrices.append({
             "ci": complexity if math.isfinite(complexity) else None,
             "candidates": P.eligible_fluorophore_count(
-                SIM_DF, SIM_NAMES, DET_MAP, labels, ALIASES, TYPES
+                REF_SIM, REF_NAMES, REF_DET, labels, ALIASES, REF_TYPES,
+                canonical=True,
             ),
             "fluors": [{
                 "name": fl,
@@ -241,8 +255,8 @@ def suggest(panel_no, n=1):
         if not 1 <= panel_no <= len(panels):
             raise ValueError(f"There is no panel {panel_no}.")
         result = P.suggest_additions(
-            SIM_DF, SIM_NAMES, DET_MAP, panels[panel_no - 1], n, top_n=5,
-            aliases=ALIASES, types=TYPES,
+            REF_SIM, REF_NAMES, REF_DET, panels[panel_no - 1], n, top_n=5,
+            aliases=ALIASES, types=REF_TYPES, canonical=True,
         )
         return json.dumps({
             "ok": True, "panel": panel_no, "n": n,
