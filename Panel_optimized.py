@@ -257,6 +257,29 @@ def load_detector_map(det_path: str) -> Dict[str, List[str]]:
     return result
 
 
+# Detector_Fluorophores.csv "Type" values that may be suggested as additions.
+# Other types (Dye, Fluorescent Protein, Microscopy, ...) are kept in the file
+# for substitution and naming but are not offered as antibody labels.
+SUGGESTED_TYPES: Tuple[str, ...] = ("Antibody",)
+
+
+def load_fluorophore_types(det_path: str) -> Dict[str, str]:
+    """Load {fluorophore: Type} from the detector CSV's optional Type column.
+
+    Returns an empty dict when the file has no Type column, which means no
+    fluorophore is filtered out of the suggestions.
+    """
+    df = pd.read_csv(det_path)
+    if "Type" not in df.columns:
+        return {}
+    types: Dict[str, str] = {}
+    for _, row in df.iterrows():
+        fluor, kind = str(row["Fluorophore"]).strip(), row["Type"]
+        if pd.notna(kind) and str(kind).strip():
+            types.setdefault(fluor, str(kind).strip())
+    return types
+
+
 def fluor_to_similarity_name(
     name: str,
     sim_names_normalized: Dict[str, str],
@@ -712,12 +735,19 @@ def _suggestion_pool(
     det_map: Optional[Dict[str, List[str]]],
     panel_fluors: Sequence[str],
     aliases: Optional[Sequence[Tuple[str, str]]] = None,
+    types: Optional[Dict[str, str]] = None,
+    allowed_types: Sequence[str] = SUGGESTED_TYPES,
 ) -> dict:
     """Prepare the eligible additions shared by the suggestion functions.
 
     Returns the canonical panel, its similarity data and base complexity, and
     the eligible pool ordered by best single addition first, with that
     complexity alongside.
+
+    `types` ({fluorophore: Type}, see `load_fluorophore_types`) limits the
+    candidates to those whose Type is in `allowed_types`. A candidate with no
+    Type listed stays eligible, so a missing entry never hides it silently.
+    The panel itself is never filtered.
     """
     sim_df, sim_names, det_map = _canonicalize_reference(sim_df, sim_names, det_map, aliases)
     if sim_names is None:
@@ -729,6 +759,17 @@ def _suggestion_pool(
         name for name in dict.fromkeys(sim_names)
         if normalize_fluorophore(name) not in taken
     ]
+    if types:
+        type_of = {
+            normalize_fluorophore(canonicalize_fluorophore(f, aliases)): kind.lower()
+            for f, kind in types.items()
+        }
+        allowed = {kind.lower() for kind in allowed_types}
+        candidates = [
+            c for c in candidates
+            if normalize_fluorophore(c) not in type_of  # no Type listed: keep
+            or type_of[normalize_fluorophore(c)] in allowed
+        ]
     base, mapped_index, substitutions, _ = _prepare_similarity(
         sim_df, sim_names, panel + candidates, det_map
     )
@@ -771,6 +812,8 @@ def eligible_fluorophore_count(
     det_map: Optional[Dict[str, List[str]]],
     panel_fluors: Sequence[str],
     aliases: Optional[Sequence[Tuple[str, str]]] = None,
+    types: Optional[Dict[str, str]] = None,
+    allowed_types: Sequence[str] = SUGGESTED_TYPES,
 ) -> int:
     """How many reference fluorophores could still be added to a panel.
 
@@ -778,7 +821,9 @@ def eligible_fluorophore_count(
     addition can be ranked.
     """
     try:
-        return len(_suggestion_pool(sim_df, sim_names, det_map, panel_fluors, aliases)["pool"])
+        return len(_suggestion_pool(
+            sim_df, sim_names, det_map, panel_fluors, aliases, types, allowed_types
+        )["pool"])
     except ValueError:
         return 0
 
@@ -791,11 +836,15 @@ def suggest_additions(
     n: int,
     top_n: int = 5,
     aliases: Optional[Sequence[Tuple[str, str]]] = None,
+    types: Optional[Dict[str, str]] = None,
+    allowed_types: Sequence[str] = SUGGESTED_TYPES,
 ) -> dict:
     """Best sets of `n` extra fluorophores to add to an existing panel.
 
     Candidates are all fluorophores of the reference matrix that the panel
-    does not use yet. Sets are ranked by the complexity of the panel plus the
+    does not use yet (only those of an allowed Type, when `types` is given,
+    so dyes and fluorescent proteins are not suggested as antibody labels).
+    Sets are ranked by the complexity of the panel plus the
     new fluorophores. This is exact: the complexity never decreases when a
     fluorophore is added, so partial sets that are already worse than the
     current top_n are skipped. (The best n+1 set does not always contain the
@@ -809,7 +858,9 @@ def suggest_additions(
     """
     if not 1 <= n <= MAX_SUGGESTED:
         raise ValueError(f"Choose between 1 and {MAX_SUGGESTED} fluorophores to add.")
-    context = _suggestion_pool(sim_df, sim_names, det_map, panel_fluors, aliases)
+    context = _suggestion_pool(
+        sim_df, sim_names, det_map, panel_fluors, aliases, types, allowed_types
+    )
     panel = context["panel"]
     base = context["base"]
     mapped_index = context["mapped_index"]

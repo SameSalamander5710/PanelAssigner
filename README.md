@@ -14,7 +14,7 @@ The tool is hosted online at https://samesalamander5710.github.io/PanelAssigner/
 - Automatic fluorophore name matching against a reference similarity matrix
 - Detector-based substitution for fluorophores not in the reference matrix
 - Similarity matrix plot of any result panel (WebUI only), below the results
-- Suggests the best 1-5 extra fluorophores to add to a chosen result panel (WebUI; `suggest_additions` in Python), ranked by the resulting complexity, with the extended similarity matrix
+- Suggests the best 1-5 extra fluorophores to add to a chosen result panel (WebUI; `suggest_additions` in Python), ranked by the resulting complexity, with the extended similarity matrix. Only antibody-label fluorophores are suggested (not dyes, fluorescent proteins or microscopy labels), see `docs/misc.md`
 - Parallel execution across multiple CPU cores
 
 ## Input Format

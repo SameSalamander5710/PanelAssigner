@@ -20,3 +20,23 @@ the results.
 - Matching ignores case, spaces, hyphens and slashes and works on whole tokens
   inside tandems. `(R)` / `(TM)` marks from vendor names are ignored.
 - If an alias appears twice, the first row wins. Add your own rows at the end.
+
+### Detector_Fluorophores.csv
+
+Columns: `Detector,Fluorophore,Type`. `Detector` is the peak channel on the
+Cytek Aurora 5L, and fluorophores sharing a channel can substitute for one
+another when an input fluorophore is not in `Similarity_Index.csv`. When
+several matrix fluorophores share a channel, the first one in file order is
+used, so keep each channel's rows sorted.
+
+`Type` says what the reagent is. Suggested additions (`suggest_additions`, and
+the web UI) only come from rows whose Type is in `SUGGESTED_TYPES` in
+`Panel_optimized.py`, by default `Antibody`:
+
+- `Antibody`: sold as an antibody or streptavidin conjugate for flow cytometry
+- `Dye`: viability, proliferation, cell-tracking and organelle stains
+- `Fluorescent Protein`: genetically encoded reporters (GFP, mCherry, ...)
+- `Microscopy`: label dyes that are mainly sold for microscopy
+
+A fluorophore with no Type, or a file without a Type column, is not filtered.
+A fluorophore you put in your own panel is always used, whatever its Type.

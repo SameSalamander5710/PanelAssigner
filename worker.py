@@ -10,6 +10,7 @@ import Panel_optimized as P
 
 SIM_DF, SIM_NAMES = P.load_similarity_matrix("./constants/Similarity_Index.csv")
 DET_MAP = P.load_detector_map("./constants/Detector_Fluorophores.csv")
+TYPES = P.load_fluorophore_types("./constants/Detector_Fluorophores.csv")  # only Antibody rows are suggested
 try:
     ALIASES, ALIAS_ERROR = P.load_fluorophore_aliases("./constants/Fluorophore_Aliases.csv"), None
 except Exception as exc:  # a typo in the CSV is reported in the UI, not lost in the worker
@@ -143,7 +144,7 @@ def finalize(results_json):
         matrices.append({
             "ci": complexity if math.isfinite(complexity) else None,
             "candidates": P.eligible_fluorophore_count(
-                SIM_DF, SIM_NAMES, DET_MAP, labels, ALIASES
+                SIM_DF, SIM_NAMES, DET_MAP, labels, ALIASES, TYPES
             ),
             "fluors": [{
                 "name": fl,
@@ -240,7 +241,8 @@ def suggest(panel_no, n=1):
         if not 1 <= panel_no <= len(panels):
             raise ValueError(f"There is no panel {panel_no}.")
         result = P.suggest_additions(
-            SIM_DF, SIM_NAMES, DET_MAP, panels[panel_no - 1], n, top_n=5, aliases=ALIASES
+            SIM_DF, SIM_NAMES, DET_MAP, panels[panel_no - 1], n, top_n=5,
+            aliases=ALIASES, types=TYPES,
         )
         return json.dumps({
             "ok": True, "panel": panel_no, "n": n,
