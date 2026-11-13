@@ -54,3 +54,16 @@ A fluorophore you put in your own panel is always used, whatever its Type.
 - A set with two identical spectra has infinite complexity in theory, but
   floating point returns a huge finite number (about 1e7 and up). Such panels
   only appear when fewer than `top_n` ordinary panels exist.
+
+### Input names and unmapped fluorophores
+
+- Antibody names that differ only in case or spacing (`CD3` and `cd3`) are one
+  antibody: the first spelling is kept and the fluorophore options of the
+  others are added to it. This is the same rule the backbone already used.
+- A fluorophore that is neither in `Similarity_Index.csv` nor shares a detector
+  with a fluorophore that is, is *unmapped*. It is assumed to overlap with
+  nothing, so panels containing it get a Matrix_CI that is better than the real
+  one. Such cells are yellow and the results table has an `Unmapped` row with
+  the count per panel. "Only use fluorophores that are in the matrix"
+  (`require_mapped=True`) leaves them out instead; backbone fluorophores are
+  never left out.

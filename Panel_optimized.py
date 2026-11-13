@@ -626,6 +626,7 @@ def prepare_search(
     aliases: Optional[Sequence[Tuple[str, str]]] = None,
     max_assigned: Optional[int] = None,
     canonical: bool = False,
+    require_mapped: bool = False,
 ) -> Optional[dict]:
     """Build the read-only search data. Returns None if nothing is assignable.
 
@@ -639,6 +640,16 @@ def prepare_search(
     Fluorophore names (input, backbone, similarity matrix and detector map)
     are first rewritten to their canonical spelling using `aliases`, see
     `canonicalize_fluorophore`.
+
+    Antibody names that differ only in case or spacing ("CD3" and "cd3") are
+    one antibody: the first spelling is kept and the fluorophore options of the
+    others are added to it (listed in the result as `merged_antibodies`).
+
+    A fluorophore that is neither in the matrix nor shares a detector with one
+    is "unmapped": it is assumed to overlap with nothing, so panels containing
+    it look better than they are. `require_mapped=True` leaves such fluorophores
+    out of the free choices (listed as `dropped_unmapped`); an antibody left
+    with no option stays unassigned. Backbone fluorophores are never dropped.
     """
     if top_n < 1:
         raise ValueError("top_n must be at least 1")
@@ -647,6 +658,17 @@ def prepare_search(
         antibody: [canonicalize_fluorophore(f, aliases) for f in fluors]
         for antibody, fluors in antibodies.items()
     }
+    merged_antibodies: List[Tuple[str, str]] = []  # (merged away, kept)
+    unique: Dict[str, Tuple[str, List[str]]] = {}
+    for antibody, fluors in antibodies.items():
+        key = _normalize_antibody(antibody)
+        if key in unique:
+            kept, joined = unique[key]
+            joined.extend(fluors)
+            merged_antibodies.append((antibody, kept))
+        else:
+            unique[key] = (antibody, list(fluors))
+    antibodies = {kept: fluors for kept, fluors in unique.values()}
     if not canonical:
         sim_df, sim_names, det_map = _canonicalize_reference(
             sim_df, sim_names, det_map, aliases
@@ -692,11 +714,27 @@ def prepare_search(
     free_original_order = list(options)
     original_order = list(backbone) + free_original_order
 
-    antibodies_by_fluor: Dict[str, List[str]] = {}
-    for antibody, fluors in options.items():
-        for fluor in fluors:
-            antibodies_by_fluor.setdefault(fluor, []).append(antibody)
+    def by_fluor(choices: Dict[str, List[str]]) -> Dict[str, List[str]]:
+        result: Dict[str, List[str]] = {}
+        for antibody, fluors in choices.items():
+            for fluor in fluors:
+                result.setdefault(fluor, []).append(antibody)
+        return result
+
+    antibodies_by_fluor = by_fluor(options)
     all_fluors = sorted(antibodies_by_fluor)
+
+    if sim_names is None:
+        sim_names = list(sim_df.index)
+    base, mapped_index, substitutions, unmapped = _prepare_similarity(
+        sim_df, sim_names, list(all_fluors) + backbone_fluors, det_map
+    )
+    dropped_unmapped = [f for f in all_fluors if f in unmapped] if require_mapped else []
+    if dropped_unmapped:
+        left_out = set(dropped_unmapped)
+        options = {a: [f for f in fl if f not in left_out] for a, fl in options.items()}
+        antibodies_by_fluor = by_fluor(options)
+        all_fluors = sorted(antibodies_by_fluor)
 
     free_max_count = len(_maximum_matching(all_fluors, antibodies_by_fluor))
     max_possible = len(backbone) + free_max_count
@@ -713,11 +751,6 @@ def prepare_search(
     if max_count == 0:
         return None
 
-    if sim_names is None:
-        sim_names = list(sim_df.index)
-    base, mapped_index, substitutions, unmapped = _prepare_similarity(
-        sim_df, sim_names, list(all_fluors) + backbone_fluors, det_map
-    )
     # Search tables. The search tries the most-overlapping fluorophores first:
     # their conflicts show up near the top of the tree, so more of it is cut
     # off. Results do not depend on this order. `all_fluors` stays
@@ -730,6 +763,8 @@ def prepare_search(
     ranked = sorted(range(n_free), key=lambda i: (-overlap[i], all_fluors[i]))
     search_order = [all_fluors[i] for i in ranked]
     return {
+        "merged_antibodies": merged_antibodies,
+        "dropped_unmapped": dropped_unmapped,
         "search_order": search_order,
         "search_pos": {f: i for i, f in enumerate(search_order)},
         "label_pos": {f: i for i, f in enumerate(labels)},
@@ -1185,6 +1220,7 @@ def find_best_panels(
     aliases: Optional[Sequence[Tuple[str, str]]] = None,
     alias_path: Optional[str] = None,
     max_assigned: Optional[int] = None,
+    require_mapped: bool = False,
 ) -> dict:
     """
     Find the exact global top_n panels among all maximum-size feasible panels.
@@ -1197,6 +1233,11 @@ def find_best_panels(
     matching. `num_unique_fluor_sets` counts the full sets actually scored;
     branches proven worse than the current top_n are skipped
     (`num_pruned_branches`).
+
+    Antibody names that differ only in case or spacing are merged into one
+    antibody, and `require_mapped=True` leaves out fluorophores that have no
+    similarity data; see `prepare_search`, and the result keys
+    `merged_antibodies` and `dropped_unmapped`.
     """
     if antibodies is None:
         if not csv_path:
@@ -1218,12 +1259,13 @@ def find_best_panels(
 
     data = prepare_search(
         antibodies, sim_df, sim_names, det_map, top_n, backbone, aliases,
-        max_assigned,
+        max_assigned, require_mapped=require_mapped,
     )
     if data is None:
         original_order = list(antibodies)
         return {
-            "max_assigned": 0, "total_antibodies": len(antibodies),
+            "max_assigned": 0,
+            "total_antibodies": len({_normalize_antibody(a) for a in antibodies}),
             "num_combinations": 1, "num_unique_fluor_sets": 1,
             "num_pruned_branches": 0,
             "combinations": [{
@@ -1257,6 +1299,8 @@ def find_best_panels(
             "unused_fluorophores": p["unused_fluorophores"],
         } for p in panels],
         "ranked_panels": panels,
+        "merged_antibodies": data["merged_antibodies"],
+        "dropped_unmapped": data["dropped_unmapped"],
         "truncated": False,
     }
 

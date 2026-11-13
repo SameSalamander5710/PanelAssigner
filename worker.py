@@ -81,10 +81,12 @@ def parse_backbone(text):
     return backbone
 
 
-def setup(text, top_n=10, backbone_text="", max_fit=""):
+def setup(text, top_n=10, backbone_text="", max_fit="", require_mapped=""):
     """Every worker runs this with the same input and builds the same task list.
 
-    `max_fit` is the "fit at most N antibodies" limit; blank means no limit."""
+    `max_fit` is the "fit at most N antibodies" limit; blank means no limit.
+    `require_mapped` ("1", "true" or True) leaves out fluorophores that have
+    no similarity data instead of treating them as overlapping with nothing."""
     try:
         if ALIAS_ERROR:
             raise ValueError(f"Could not load fluorophore aliases: {ALIAS_ERROR}")
@@ -95,20 +97,27 @@ def setup(text, top_n=10, backbone_text="", max_fit=""):
         if max_fit and not max_fit.isdigit():
             raise ValueError('"Fit at most" must be a whole number of antibodies.')
         max_assigned = int(max_fit) if max_fit else None
+        require_mapped = str(require_mapped).strip().lower() in ("1", "true", "yes", "on")
         backbone = parse_backbone(backbone_text)
         antibodies = parse_pasted(text, required=not backbone)
         data = P.prepare_search(
             antibodies, REF_SIM, REF_NAMES, REF_DET, top_n,
             backbone=backbone, aliases=ALIASES, max_assigned=max_assigned,
-            canonical=True,
+            canonical=True, require_mapped=require_mapped,
         )
         if data is None:
-            raise ValueError("No assignable antibody/fluorophore pairs.")
+            raise ValueError(
+                "None of the fluorophores have similarity data, so nothing can be "
+                "assigned. Untick the option to use only fluorophores in the matrix."
+                if require_mapped else "No assignable antibody/fluorophore pairs."
+            )
         tasks = P.make_search_tasks(data, TARGET_TASKS)
         STATE.update(data=data, tasks=tasks, top_n=top_n,
                      total=len(data["original_order"]),
                      max_count=data["max_count"],
-                     max_possible=data["max_possible"])
+                     max_possible=data["max_possible"],
+                     merged=data["merged_antibodies"],
+                     dropped_unmapped=data["dropped_unmapped"])
         return json.dumps({"ok": True, "n_tasks": len(tasks),
                            "bound": repr(P.seed_bound(data))})
     except Exception as exc:
@@ -208,7 +217,19 @@ def finalize(results_json):
     parts.append('</tbody><tfoot><tr class="ci-row"><th colspan="2">Matrix_CI</th>')
     for c, _, _ in best:
         parts.append(f'<td class="num">{c:.4f}</td>')
-    parts.append("</tr></tfoot></table>")
+    parts.append("</tr>")
+    # Fluorophores without similarity data count as overlapping with nothing,
+    # which flatters the Matrix_CI above, so say how many each panel has.
+    n_unmapped = [len(panel["unmapped_fluors"]) for _, _, panel in best]
+    if any(n_unmapped):
+        parts.append(
+            '<tr class="note-row"><th colspan="2" title="Fluorophores that are not in the '
+            'similarity matrix and have no substitute are treated as overlapping with '
+            'nothing, so the Matrix_CI is better than the real one.">Unmapped</th>'
+        )
+        parts.extend(f'<td class="num">{n}</td>' for n in n_unmapped)
+        parts.append("</tr>")
+    parts.append("</tfoot></table>")
 
     substitutions = sorted({
         (fluor, substituted)
@@ -232,6 +253,21 @@ def finalize(results_json):
         size +
         f"Fluorophore sets scored: {evaluated:,} (branches pruned: {pruned:,})."
     )
+    notes = []
+    with_unmapped = sum(1 for n in n_unmapped if n)
+    if with_unmapped:
+        notes.append(
+            f"{with_unmapped} of {len(best)} panels contain fluorophores with no similarity "
+            "data (yellow); their overlap is not counted, so their Matrix_CI is too good. "
+            "Tick the option to use only fluorophores in the matrix to leave them out."
+        )
+    if STATE["dropped_unmapped"]:
+        notes.append("Left out (no similarity data): " + ", ".join(STATE["dropped_unmapped"]) + ".")
+    if STATE["merged"]:
+        notes.append("Treated as the same antibody: " + ", ".join(
+            f"{gone} = {kept}" for gone, kept in STATE["merged"]) + ".")
+    if notes:
+        summary += " " + " ".join(notes)
     return json.dumps({
         "summary": summary,
         "html": "".join(parts),

@@ -93,6 +93,8 @@
     .results-table .num { text-align: right; }
     .results-table .ci-row th,
     .results-table .ci-row td { background: #f2f2f2; font-weight: 600; }
+    .results-table .note-row th,
+    .results-table .note-row td { background: #fff3bf; font-weight: 600; }
     .results-table .assigned,
     .legend .assigned { background: #d9f2d9; }
     .results-table .substituted,
@@ -187,6 +189,7 @@
       <button id="run" disabled>Compute</button>
       <div class="topn-line">Show top <input id="topn" type="number" value="10" min="1"> panels.</div>
       <div class="topn-line" title="Largest panel to attempt. Lower it to leave out antibodies whose fluorophores clash.">Fit at most <input id="maxfit" type="number" min="1"> of <span id="maxfit-total">0</span> antibodies.</div>
+      <div class="topn-line" title="Fluorophores that are not in the similarity matrix and have no substitute are otherwise treated as overlapping with nothing, which makes panels containing them look better than they are. Antibodies left without any option stay unassigned."><label><input id="requiremapped" type="checkbox"> Only use fluorophores that are in the matrix</label></div>
       <p id="status">Loading 4 Python workers (first visit takes a while)...</p>
     </div>
     <div class="output-panel">
@@ -450,7 +453,8 @@
 
       function total() {
         const fixed = new Set(backboneAntibodies(backbone.value).map(normalize));
-        const free = new Set(antibodies(input.value).filter(function (a) { return !fixed.has(normalize(a)); }));
+        // Names that differ only in case or spacing are one antibody (as in prepare_search).
+        const free = new Set(antibodies(input.value).map(normalize).filter(function (a) { return !fixed.has(a); }));
         return fixed.size + free.size;
       }
 
