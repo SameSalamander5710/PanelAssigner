@@ -37,6 +37,19 @@ Each result includes:
 - **Unmapped**: fluorophores not found in the reference matrix
 - **Similarity matrix**: similarity matrix of result panels
 
+## Complexity calculations
+
+The `Matrix_CI` score (implemented in `_complexity_for_set`) is the square root of the condition number of the panel's similarity matrix.
+
+For a panel of $n$ fluorophores, build the symmetric matrix $S$ ($n \times n$) where $S_{ii}=1$, $S_{ij}$ is the spectral similarity between fluorophores $i$ and $j$ from `constants/Similarity_Index.csv`, and cells involving an unmapped fluorophore are $0$. Taking the eigenvalues $\lambda_i$ of $S$:
+
+$$
+\boxed{CI(S)=\sqrt{\frac{\lambda_{\max}(S)}{\lambda_{\min}(S)}}}
+$$
+
+Lower values are better: $CI=1$ means perfectly non-overlapping spectra, and the score grows as overlaps make the matrix closer to singular. If any eigenvalue is $\le 0$ or the matrix contains non-finite values, the complexity is reported as infinite. Panels with fewer than two fluorophores score $1.0$.
+
+
 ## Installation
 
 Clone the repo, then:
