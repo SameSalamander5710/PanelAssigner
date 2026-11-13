@@ -214,12 +214,12 @@ def finalize(results_json):
                 parts.append('<td class="unassigned" title="unassigned"></td>')
         parts.append("</tr>")
 
-    parts.append('</tbody><tfoot><tr class="ci-row"><th colspan="2">Matrix_CI</th>')
+    parts.append('</tbody><tfoot><tr class="ci-row"><th colspan="2">A-optimality</th>')
     for c, _, _ in best:
         parts.append(f'<td class="num">{c:.4f}</td>')
     parts.append("</tr></tfoot></table>")
     # Fluorophores without similarity data count as overlapping with nothing,
-    # which flatters the Matrix_CI above; the hover notes say how many.
+    # which flatters the A-optimality score above; the hover notes say how many.
     n_unmapped = [len(panel["unmapped_fluors"]) for _, _, panel in best]
 
     substitutions = sorted({
@@ -249,7 +249,7 @@ def finalize(results_json):
     if with_unmapped:
         notes.append(
             f"{with_unmapped} of {len(best)} panels contain fluorophores with no similarity "
-            "data (yellow); their overlap is not counted, so their Matrix_CI is too good. "
+            "data (yellow); their overlap is not counted, so their A-optimality score is too good. "
             "Tick the option to use only fluorophores in the matrix to leave them out."
         )
     if STATE["dropped_unmapped"]:

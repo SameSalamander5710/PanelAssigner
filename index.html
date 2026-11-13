@@ -670,7 +670,7 @@
         warning.hidden = true;
         if (!panel) return;
         showWarning(panel);
-        ci.textContent = 'Matrix CI: ' + (panel.ci === null ? 'inf' : panel.ci.toFixed(4));
+        ci.textContent = 'A-optimality: ' + (panel.ci === null ? 'inf' : panel.ci.toFixed(4));
 
         suggestPanel.textContent = n;
         updateSuggestPool();
@@ -691,7 +691,7 @@
         });
         const groups = base.fluors.map(function () { return 'base'; })
           .concat(added.map(function () { return 'new'; }));
-        sCi.textContent = 'Matrix CI: ' + item.ci.toFixed(4) + ' (panel ' + suggestion.panel + ': ' + suggestion.base_ci.toFixed(4) + ')';
+        sCi.textContent = 'A-optimality: ' + item.ci.toFixed(4) + ' (panel ' + suggestion.panel + ': ' + suggestion.base_ci.toFixed(4) + ')';
         sScroll.appendChild(buildTable(base.fluors.concat(added), item.values, groups));
       }
 
@@ -715,7 +715,7 @@
         const table = document.createElement('table');
         table.className = 'results-table suggest-table';
         const head = table.createTHead().insertRow();
-        ['#', 'Added fluorophores', 'Matrix CI', 'Change'].forEach(function (text, i) {
+        ['#', 'Added fluorophores', 'A-optimality', 'Change'].forEach(function (text, i) {
           const th = document.createElement('th');
           th.textContent = text;
           if (i !== 1) th.className = 'num';

@@ -10,7 +10,7 @@ The tool is hosted online at https://samesalamander5710.github.io/PanelAssigner/
 
 - Finds the maximum number of antibodies that can be assigned distinct fluorophores
 - Evaluates all feasible fluorophore combinations using exact search with pruning
-- Ranks panels by spectral overlap (condition index of the similarity matrix)
+- Ranks panels by spectral overlap (A-optimality of the similarity matrix)
 - Automatic fluorophore name matching against a reference similarity matrix
 - Detector-based substitution for fluorophores not in the reference matrix
 - Similarity matrix plot of any result panel (WebUI only), below the results
@@ -32,22 +32,22 @@ CSV or pasted text with two columns:
 Each result includes:
 - **Assignments**: antibody-to-fluorophore mapping
 - **Unassigned antibodies**: those that could not be matched
-- **Matrix Complexity**: lower values indicate less spectral overlap
+- **A-optimality**: lower values indicate less spectral overlap
 - **Substitutions**: fluorophores replaced by detector-matched alternatives, if not found in the current database
 - **Unmapped**: fluorophores not found in the reference matrix
 - **Similarity matrix**: similarity matrix of result panels
 
 ## Complexity calculations
 
-The `Matrix_CI` score (implemented in `_complexity_for_set`) is the square root of the condition number of the panel's similarity matrix.
+The A-optimality score (implemented in `_complexity_for_set`) is the mean variance inflation factor of the panel's similarity matrix.
 
 For a panel of $n$ fluorophores, build the symmetric matrix $S$ ($n \times n$) where $S_{ii}=1$, $S_{ij}$ is the spectral similarity between fluorophores $i$ and $j$ from `constants/Similarity_Index.csv`, and cells involving an unmapped fluorophore are $0$. Taking the eigenvalues $\lambda_i$ of $S$:
 
 $$
-\boxed{CI(S)=\sqrt{\frac{\lambda_{\max}(S)}{\lambda_{\min}(S)}}}
+\boxed{\text{Score}_{A}(S)=\frac{1}{n}\sum_{i=1}^{n}\frac{1}{\lambda_i}}
 $$
 
-Lower values are better: $CI=1$ means perfectly non-overlapping spectra, and the score grows as overlaps make the matrix closer to singular. If any eigenvalue is $\le 0$ or the matrix contains non-finite values, the complexity is reported as infinite. Panels with fewer than two fluorophores score $1.0$.
+Lower values are better: a perfectly orthogonal panel of any size scores $1.0$, and the score grows as overlaps make the matrix closer to singular. If any eigenvalue is $\le 0$ (or below a numerical tolerance of $10^{-12}$) or the matrix contains non-finite values, the score is reported as infinite. Panels with fewer than two fluorophores score $1.0$.
 
 
 ## Installation

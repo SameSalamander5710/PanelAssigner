@@ -9,12 +9,14 @@ Exactness and pruning:
 - The maximum panel size comes from bipartite matching.
 - Every fluorophore set of that size that can be matched to distinct
   antibodies is a candidate; the globally best top_n sets are returned.
-- The complexity sqrt(lambda_max / lambda_min) of a set is computed from a
-  principal submatrix of one global similarity matrix. By Cauchy interlacing,
-  adding a fluorophore can never lower it. A partial set that is already
-  worse than the current n-th best therefore cannot lead to a top_n panel,
-  and its whole branch is skipped. This is exact: no heuristic cut-off, no
-  sampling; ties are resolved exactly as in an exhaustive search.
+- The A-optimality score (mean variance inflation factor) of a set is computed
+  from a principal submatrix of one global similarity matrix:
+  (1/n) * sum(1 / lambda_i). By Cauchy interlacing, the trace of the inverse
+  can never decrease when a fluorophore is added. A partial set whose score,
+  scaled to the final panel size, is already worse than the current n-th best
+  therefore cannot lead to a top_n panel, and its whole branch is skipped.
+  This is exact: no heuristic cut-off, no sampling; ties are resolved exactly
+  as in an exhaustive search.
 - A small tolerance (1e-9 relative) keeps floating-point noise from ever
   discarding a branch that could still tie for a top_n place.
 
@@ -515,7 +517,7 @@ def _complexity_for_set(
     base_similarity: np.ndarray,
     mapped_index: Dict[str, int],
 ) -> float:
-    """Calculate the same eigenvalue-ratio complexity used in the original."""
+    """A-optimality score: the mean of the reciprocal eigenvalues of S."""
     if len(fluor_set) < 2:
         return 1.0
 
@@ -525,14 +527,17 @@ def _complexity_for_set(
         return float("inf")
 
     eigenvalues = np.linalg.eigvalsh(S)
-    smallest = eigenvalues[0]
-    if not np.isfinite(eigenvalues).all() or smallest <= 0:
+    if (
+        not np.isfinite(eigenvalues).all()
+        or eigenvalues[0] <= _EIGENVALUE_TOL
+    ):
         return float("inf")
 
-    return float(np.sqrt(eigenvalues[-1] / smallest))
+    return float(np.mean(1.0 / eigenvalues))
 
 
 INF = float("inf")
+_EIGENVALUE_TOL = 1e-12
 _RTOL = 1e-9
 _ATOL = 1e-12
 
@@ -567,6 +572,7 @@ class _SetComplexity:
         self.M = M
         self.nb = len(base_rows)
         size = self.nb + max_extra
+        self.final_size = size
         self.rows = np.zeros(size, dtype=np.intp)
         self.rows[: self.nb] = base_rows
         self.W = np.zeros((size, size))  # only the lower triangle is used
@@ -581,8 +587,9 @@ class _SetComplexity:
 
         Returns its largest similarity to the fluorophores before it. By
         eigenvalue interlacing, a set containing a pair with similarity s has
-        complexity of at least sqrt((1 + s) / (1 - s)), so this can rule a
-        set out without solving for eigenvalues.
+        an A-optimality score of at least 1 / (N * (1 - |s|)) for a final
+        panel of N fluorophores, so this can rule a set out without solving
+        for eigenvalues.
         """
         m = self.nb + depth
         self.rows[m] = row
@@ -594,7 +601,7 @@ class _SetComplexity:
         return float(np.abs(values).max() if self.signed else values.max())
 
     def complexity(self, depth: int) -> float:
-        """Complexity with the first `depth + 1` added fluorophores (-1: none)."""
+        """A-optimality score with the first `depth + 1` added fluorophores (-1: none)."""
         m = self.nb + depth + 1
         if m < 2:
             return 1.0
@@ -602,18 +609,32 @@ class _SetComplexity:
         if not self.finite and not np.isfinite(S).all():
             return INF
         eigenvalues = np.linalg.eigvalsh(S)
-        smallest = eigenvalues[0]
-        if not np.isfinite(eigenvalues).all() or smallest <= 0:
+        if (
+            not np.isfinite(eigenvalues).all()
+            or eigenvalues[0] <= _EIGENVALUE_TOL
+        ):
             return INF
-        return float(np.sqrt(eigenvalues[-1] / smallest))
+        return float(np.mean(1.0 / eigenvalues))
+
+    def lower_bound(self, depth: int) -> float:
+        """Lower bound on the final score after adding more fluorophores.
+
+        Cauchy interlacing makes tr(S^-1) grow with the panel size, so the
+        current mean, scaled by (current size / final size), cannot exceed the
+        final mean.
+        """
+        m = self.nb + depth + 1
+        if m < 2:
+            return 1.0
+        return max(1.0, (m / self.final_size) * self.complexity(depth))
 
 
-def _pair_limit(limit: float) -> float:
+def _pair_limit(limit: float, final_size: int) -> float:
     """Pair similarity above which a set is provably worse than `limit`."""
     if limit == INF:
         return 2.0  # nothing is that similar
     bound = limit * (1.0 + _RTOL) + _ATOL
-    return (bound * bound - 1.0) / (bound * bound + 1.0)
+    return 1.0 - 1.0 / (final_size * bound)
 
 
 def prepare_search(
@@ -962,11 +983,11 @@ def search_subtree(data: dict, task: tuple, bound: float = INF):
                 continue  # no antibody assignment for these fluorophores
             top_similarity = builder.push(depth, rows[i])
             current = limit()
-            if current != INF and _PAIR_SAFE > top_similarity > _pair_limit(current):
+            if current != INF and _PAIR_SAFE > top_similarity > _pair_limit(current, builder.final_size):
                 pruned += 1  # one pair is already too similar
                 continue
-            if _worse_than(builder.complexity(depth), current):
-                pruned += 1  # complexity never decreases when adding more
+            if _worse_than(builder.lower_bound(depth), current):
+                pruned += 1  # a lower bound grows when adding more fluorophores
             elif needed == 1:
                 chosen.append(i)
                 leaf(chosen)
@@ -990,8 +1011,8 @@ def search_subtree(data: dict, task: tuple, bound: float = INF):
         builder.push(len(chosen), rows[i])
         chosen.append(i)
     if chosen:
-        complexity = builder.complexity(len(chosen) - 1)
-        if _worse_than(complexity, limit()):
+        lower_bound = builder.lower_bound(len(chosen) - 1)
+        if _worse_than(lower_bound, limit()):
             pruned += 1
         elif len(chosen) == k:
             leaf(chosen)
@@ -1130,11 +1151,12 @@ def suggest_additions(
     Candidates are all fluorophores of the reference matrix that the panel
     does not use yet (only those of an allowed Type, when `types` is given,
     so dyes and fluorescent proteins are not suggested as antibody labels).
-    Sets are ranked by the complexity of the panel plus the
-    new fluorophores. This is exact: the complexity never decreases when a
-    fluorophore is added, so partial sets that are already worse than the
-    current top_n are skipped. (The best n+1 set does not always contain the
-    best n set, so adding one at a time would not be exact.)
+    Sets are ranked by the A-optimality score of the panel plus the new
+    fluorophores. This is exact: tr(S^-1) never decreases when a fluorophore
+    is added, so a partial set whose score, scaled to the final panel size, is
+    already worse than the current top_n is skipped. (The best n+1 set does
+    not always contain the best n set, so adding one at a time would not be
+    exact.)
 
     Returns {"base_complexity", "candidates", "combinations", "suggestions":
     [{"fluors", "matrix_complexity", "values"}]}, where `candidates` is the
@@ -1164,6 +1186,7 @@ def suggest_additions(
     found: List[Tuple[float, Tuple[str, ...]]] = []
     builder = _SetComplexity(context["M"], range(len(panel)), n)
     pool_rows = [context["label_pos"][name] for name in pool]
+    single_scale = (len(panel) + 1) / builder.final_size
 
     def limit() -> float:
         return found[-1][0] if len(found) >= top_n else INF
@@ -1173,13 +1196,13 @@ def suggest_additions(
         needed = n - depth
         for i in range(start, len(pool) - needed + 1):
             current = limit()
-            if _worse_than(single_complexity[i], current):
+            if _worse_than(single_complexity[i] * single_scale, current):
                 break  # sorted: no later candidate can do better either
             top_similarity = builder.push(depth, pool_rows[i])
-            if current != INF and _PAIR_SAFE > top_similarity > _pair_limit(current):
+            if current != INF and _PAIR_SAFE > top_similarity > _pair_limit(current, builder.final_size):
                 continue  # one pair is already too similar
             c = builder.complexity(depth)
-            if np.isfinite(c) and not _worse_than(c, current):
+            if np.isfinite(c) and not _worse_than(builder.lower_bound(depth), current):
                 chosen.append(i)
                 if needed == 1:
                     found.append((c, tuple(pool[j] for j in chosen)))
@@ -1346,7 +1369,7 @@ if __name__ == "__main__":
 
     for rank, panel in enumerate(result["ranked_panels"], 1):
         print(
-            f"\nRank {rank} - Matrix CI: "
+            f"\nRank {rank} - A-optimality: "
             f"{panel['matrix_complexity']:.4f}"
         )
         for antibody, fluor in panel["assignments"].items():

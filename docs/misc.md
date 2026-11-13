@@ -51,9 +51,9 @@ A fluorophore you put in your own panel is always used, whatever its Type.
   (`search_order`), which cuts off more of the search tree. This changes how
   many sets are scored and pruned, not the panels found: every panel,
   complexity and tie-break uses the alphabetical `all_fluors` order.
-- A set with two identical spectra has infinite complexity in theory, but
-  floating point returns a huge finite number (about 1e7 and up). Such panels
-  only appear when fewer than `top_n` ordinary panels exist.
+- A set with two identical spectra has an infinite A-optimality score in
+  theory; a non-positive or near-zero eigenvalue is reported as infinite. Such
+  panels only appear when fewer than `top_n` ordinary panels exist.
 
 ### Input names and unmapped fluorophores
 
@@ -62,8 +62,8 @@ A fluorophore you put in your own panel is always used, whatever its Type.
   others are added to it. This is the same rule the backbone already used.
 - A fluorophore that is neither in `Similarity_Index.csv` nor shares a detector
   with a fluorophore that is, is *unmapped*. It is assumed to overlap with
-  nothing, so panels containing it get a Matrix_CI that is better than the real
-  one. Such cells are yellow and the results table has an `Unmapped` row with
+  nothing, so panels containing it get an A-optimality score that is better
+  than the real one. Such cells are yellow and the results table has an `Unmapped` row with
   the count per panel. "Only use fluorophores that are in the matrix"
   (`require_mapped=True`) leaves them out instead; backbone fluorophores are
   never left out.

@@ -353,13 +353,13 @@ def calculate_panel_complexity(fluorophores, sim_df, sim_names, det_map=None):
     if not np.all(np.isfinite(S)):
         return {'matrix_complexity': np.inf, 'unmapped_fluors': unmapped_fluors, 'substitutions': substitutions}
     
-    # Matrix condition index
+    # A-optimality: mean variance inflation factor
     eigenvalues = np.linalg.eigvalsh(S)
     
-    if eigenvalues.min() <= 0:
+    if not np.all(np.isfinite(eigenvalues)) or eigenvalues.min() <= 1e-12:
         matrix_complexity = np.inf
     else:
-        matrix_complexity = np.sqrt(eigenvalues.max() / eigenvalues.min())
+        matrix_complexity = np.mean(1.0 / eigenvalues)
     
     return {
         'n_fluorophores': len(fluorophores),
@@ -409,7 +409,7 @@ top_panels, sim_names_normalized, det_map = rank_combinations_by_complexity(resu
 
 print("\n--- Top 10 Panels (Lowest Complexity) ---")
 for i, panel in enumerate(top_panels, 1):
-    print(f"\nRank {i} - Matrix CI: {panel['matrix_complexity']:.4f}")
+    print(f"\nRank {i} - A-optimality: {panel['matrix_complexity']:.4f}")
     for ab, fluor in panel['assignments'].items():
         tags = []
         if fluor in panel.get('substitutions', {}):
