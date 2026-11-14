@@ -67,3 +67,22 @@ A fluorophore you put in your own panel is always used, whatever its Type.
   the count per panel. "Only use fluorophores that are in the matrix"
   (`require_mapped=True`) leaves them out instead; backbone fluorophores are
   never left out.
+
+### Reading the page
+
+- Similarity matrices: a purple line separates the fluorophores you fixed
+  (the optional input) from the ones the search chose, as a green line
+  separates suggested additions. The purple line only appears when a panel
+  has fixed fluorophores.
+- Clicking a panel column in the results table selects that panel, the same
+  as typing its number in the matrix panel box. The selected column is marked
+  with a style sheet, so the table that Copy takes is unchanged. Clicks that
+  end a text selection are ignored.
+- Above Compute, a live summary (`worker.summarize`) checks the inputs as you
+  type, with no search: antibodies, pairs, fixed fluorophores, and how many
+  fluorophores are detector-substituted (blue) or unmapped (yellow, "left
+  out" if only fluorophores in the matrix are used). The same colours mark
+  the rows of both text boxes. Each text box has a copy of its text behind it
+  in transparent ink so that rows can be coloured, so font, line height,
+  padding and wrapping of `.hl-back` must stay identical to those of the
+  `textarea` (see the CSS comment).

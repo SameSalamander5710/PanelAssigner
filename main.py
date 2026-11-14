@@ -14,6 +14,8 @@ suggest_status = document.getElementById("suggest-status")
 suggest_data = document.getElementById("suggest-data")  # ... and the suggestions from this
 mapped_info = document.getElementById("requiremapped-info")  # hover notes for the matrix option
 mapped_tip = document.getElementById("requiremapped-tip")
+live_data = document.getElementById("live-data")  # ... and the live summary of the inputs from this
+live_ticket = 0
 
 
 def set_mapped_info(notes, has_unmapped=False):
@@ -26,11 +28,30 @@ def set_mapped_info(notes, has_unmapped=False):
         mapped_info.classList.remove("has-unmapped")
 
 
+async def refresh_live():
+    """Check the inputs on a worker once typing pauses; index.html shows the answer."""
+    global live_ticket
+    live_ticket += 1
+    mine = live_ticket
+    await asyncio.sleep(0.3)  # newer typing makes this ticket stale
+    if mine != live_ticket or not pool or run_btn.disabled:  # not ready, or a compute is running
+        return
+    require_mapped = "1" if document.getElementById("requiremapped").checked else ""
+    raw = await pool[-1].summarize(  # the last worker: w0 holds the panels for Suggest
+        document.getElementById("input").value,
+        document.getElementById("backbone").value,
+        require_mapped,
+    )
+    if mine == live_ticket:
+        live_data.textContent = raw
+
+
 async def start():
     for name in NAMES:
         pool.append(await workers[name])  # resolves once that worker has loaded
     run_btn.disabled = False
     status.innerText = "Ready (" + str(len(pool)) + " workers)."
+    await refresh_live()  # the browser may have restored text from an earlier visit
 
 
 async def drive(worker, text, backbone, top_n, max_fit, require_mapped, state):  # top_n is an int here
@@ -57,6 +78,21 @@ async def drive(worker, text, backbone, top_n, max_fit, require_mapped, state): 
             kth = state["known"][top_n - 1]
             if kth < state["bound"]:
                 state["bound"] = kth
+
+
+@when("input", "#input")
+async def input_changed(event):
+    await refresh_live()
+
+
+@when("input", "#backbone")
+async def backbone_changed(event):
+    await refresh_live()
+
+
+@when("change", "#requiremapped")
+async def require_mapped_changed(event):
+    await refresh_live()
 
 
 @when("click", "#run")
@@ -89,6 +125,7 @@ async def compute(event):
         subs.innerHTML = res["substitutions_html"]
         matrix_data.textContent = res["matrices_json"]
     run_btn.disabled = False
+    await refresh_live()  # the text may have been edited while computing
 
 
 @when("click", "#suggest-run")

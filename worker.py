@@ -81,6 +81,111 @@ def parse_backbone(text):
     return backbone
 
 
+def _row_fluors(text, backbone=False):
+    """[(line number, fluorophore)] for each usable row, read line by line.
+
+    This follows parse_pasted (backbone=False) and parse_backbone (True), and
+    numbers the lines as they stand in the text box (the parsers do not
+    keep line numbers), so that rows can be highlighted."""
+    body = text.strip()  # as the parsers do, even where that shifts the first row's columns
+    skipped = text[: len(text) - len(text.lstrip())].count("\n")  # lines stripped off the front
+    delim = "\t" if "\t" in body else ("," if "," in body else ";")
+    rows = []
+    for index, line in enumerate(body.split("\n")):
+        number = skipped + index
+        parsed = next(csv.reader([line], delimiter=delim), None)
+        if not parsed:
+            continue
+        if backbone:
+            fields = [field.strip() for field in parsed if field.strip()]
+            if not fields:
+                continue
+            if len(fields) >= 2 and fields[0].lower() == "antibody" and fields[1].lower() == "fluorophore":
+                continue
+            rows.append((number, fields[1] if len(fields) >= 2 else fields[0]))
+        else:
+            if len(parsed) < 2:
+                continue
+            ab, fl = parsed[0].strip(), parsed[1].strip()
+            if not ab or not fl or (ab.lower() == "antibody" and fl.lower() == "fluorophore"):
+                continue
+            rows.append((number, fl))
+    return rows
+
+
+def summarize(text, backbone_text="", require_mapped=""):
+    """A quick look at the input, for showing before anything is computed.
+
+    Counts antibodies and pairs as the search will see them, and flags
+    fluorophores that are detector-substituted or unmapped, overall and per
+    line of each text box (so the rows can be coloured). It uses the same
+    alias, substitution and parsing code as Compute, but no search."""
+    try:
+        if ALIAS_ERROR:
+            raise ValueError(f"Could not load fluorophore aliases: {ALIAS_ERROR}")
+        if REF_ERROR:
+            raise ValueError(REF_ERROR)
+        require_mapped = str(require_mapped).strip().lower() in ("1", "true", "yes", "on")
+        lines = {"input": text.split("\n"), "backbone": (backbone_text or "").split("\n")}
+        rows = {"input": _row_fluors(text), "backbone": _row_fluors(backbone_text or "", True)}
+
+        # Each distinct fluorophore (by canonical name) is looked up once.
+        canonical = {}
+        for kind in rows:
+            for _, fluor in rows[kind]:
+                canonical.setdefault(fluor, P.canonicalize_fluorophore(fluor, ALIASES))
+        _, _, substituted, unmapped = P._prepare_similarity(
+            REF_SIM, REF_NAMES, canonical.values(), REF_DET
+        )
+        def status(fluor):
+            name = canonical[fluor]
+            return "unmapped" if name in unmapped else ("substituted" if name in substituted else "")
+
+        flagged = {"substituted": {}, "unmapped": {}}
+        row_status = {kind: [""] * len(lines[kind]) for kind in rows}
+        for kind in rows:
+            for number, fluor in rows[kind]:
+                kind_of = status(fluor)
+                row_status[kind][number] = kind_of
+                if kind_of:
+                    note = substituted.get(canonical[fluor], "")
+                    flagged[kind_of].setdefault(canonical[fluor], {"name": fluor, "note": note})
+
+        try:
+            main = parse_pasted(text, required=False)
+            fixed = parse_backbone(backbone_text) if (backbone_text or "").strip() else {}
+        except ValueError:
+            main, fixed = {}, {}
+        counts = None
+        if main:
+            try:
+                data = P.prepare_search(
+                    main, REF_SIM, REF_NAMES, REF_DET, 1, fixed, ALIASES,
+                    canonical=True, require_mapped=require_mapped,
+                )
+            except ValueError:
+                data = None
+            if data is not None:
+                counts = (
+                    len(data["free_original_order"]),
+                    sum(len(v) for v in data["antibodies_by_fluor"].values()),
+                    len(data["backbone_assignments"]),
+                )
+        if counts is None:  # nothing assignable (yet): count what was typed
+            counts = (len(main), sum(len(v) for v in main.values()), len(fixed))
+        return json.dumps({
+            "ok": True,
+            "antibodies": counts[0], "pairs": counts[1], "fixed": counts[2],
+            "require_mapped": require_mapped,
+            "substituted": list(flagged["substituted"].values()),
+            "unmapped": list(flagged["unmapped"].values()),
+            "input_rows": row_status["input"],
+            "backbone_rows": row_status["backbone"],
+        })
+    except Exception as exc:  # shown under the inputs, never lost in the worker
+        return json.dumps({"ok": False, "error": str(exc)})
+
+
 def setup(text, top_n=10, backbone_text="", max_fit="", require_mapped=""):
     """Every worker runs this with the same input and builds the same task list.
 
@@ -297,4 +402,4 @@ def suggest(panel_no, n=1):
         return json.dumps({"ok": False, "error": str(exc)})
 
 
-__export__ = ["setup", "search", "finalize", "suggest"]
+__export__ = ["setup", "search", "finalize", "suggest", "summarize"]

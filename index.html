@@ -12,6 +12,27 @@
     h1 { margin-bottom: .25rem; }
     textarea, #output { width: 100%; box-sizing: border-box; font-family: ui-monospace, monospace; }
     textarea { resize: none; }
+    /* Each text box has a copy of its text behind it, in transparent ink, so that rows can
+       be coloured. Font, line height, padding and wrapping must match the text box exactly. */
+    .hl-wrap { position: relative; min-width: 0; }
+    #input-wrap { grid-area: inbox; }
+    #backbone-wrap { grid-area: backbone; }
+    .hl-wrap textarea,
+    .hl-back {
+      box-sizing: border-box; width: 100%; margin: 0;
+      font: 13px/18px ui-monospace, monospace; tab-size: 8;
+      padding: 4px 6px; border: 1px solid #767676;
+      white-space: pre-wrap; overflow-wrap: break-word;
+    }
+    .hl-wrap textarea { position: relative; display: block; background: transparent; }
+    .hl-back { position: absolute; inset: 0; border-color: transparent; background: #fff; color: transparent; overflow: hidden; pointer-events: none; }
+    .hl-line { margin: 0 -6px; padding: 0 6px; }
+    .hl-line.substituted, .live-summary .chip.substituted { background: #cfe8ff; }
+    .hl-line.unmapped, .live-summary .chip.unmapped { background: #fff3bf; }
+    .live-summary { font-size: .85rem; min-height: 1.5rem; display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .4rem; }
+    .live-summary.stale { opacity: .55; }
+    .live-summary.error { color: #b00020; }
+    .live-summary .chip { padding: 0 .4rem; border: 1px solid #999; border-radius: 3px; }
     label { display: block; margin-top: 1rem; font-weight: 600; }
     button { padding: .5rem 1.25rem; font-size: 1rem; }
     #topn, #maxfit { width: 4rem; }
@@ -28,8 +49,6 @@
     .config { margin: .5rem 0; color: #555; }
     .input-label { grid-area: inlabel; }
     .backbone-label { grid-area: backlabel; }
-    #input { grid-area: inbox; }
-    #backbone { grid-area: backbone; }
     .controls {
       display: flex;
       flex-wrap: wrap;
@@ -234,10 +253,11 @@
   <div class="layout">
     <div class="inputs">
       <label for="input" class="input-label">Antibody-Fluorophore pairs</label>
-      <textarea id="input" rows="15" placeholder="Antibody&#9;Fluorophore&#10;CD3&#9;BV421&#10;CD3&#9;FITC"></textarea>
+      <div id="input-wrap" class="hl-wrap"><div class="hl-back" aria-hidden="true"></div><textarea id="input" rows="15" placeholder="Antibody&#9;Fluorophore&#10;CD3&#9;BV421&#10;CD3&#9;FITC"></textarea></div>
       <label for="backbone" class="backbone-label">Penalize overlap with (Optional):</label>
-      <textarea id="backbone" rows="15" placeholder="Add existing fluorophores, fluorescent proteins, cell stains, or fluorophores that match your sample's autofluorescence to avoid spectral overlap. E.g.:&#10;&#10;CD45, PE&#10;DAPI&#10;FVS700&#10;BV510"></textarea>
+      <div id="backbone-wrap" class="hl-wrap"><div class="hl-back" aria-hidden="true"></div><textarea id="backbone" rows="15" placeholder="Add existing fluorophores, fluorescent proteins, cell stains, or fluorophores that match your sample's autofluorescence to avoid spectral overlap. E.g.:&#10;&#10;CD45, PE&#10;DAPI&#10;FVS700&#10;BV510"></textarea></div>
     </div>
+    <div id="live-summary" class="live-summary" aria-live="polite" title="Checked as you type, before computing. Blue: a fluorophore that stands in for one in the matrix by detector. Yellow: not in the matrix, so it is treated as overlapping with nothing."></div>
     <div class="controls">
       <button id="run" disabled>Compute</button>
       <div class="topn-line">Show top <input id="topn" type="number" value="10" min="1"> panels.</div>
@@ -305,6 +325,7 @@
       </div>
       <div id="matrix-data" hidden></div>
       <div id="suggest-data" hidden></div>
+      <div id="live-data" hidden></div>
     </div>
   </div>
 
@@ -851,6 +872,130 @@
       new MutationObserver(loadSuggestions).observe(sData, { childList: true });
       new MutationObserver(load).observe(data, { childList: true });
       load();
+    })();
+  </script>
+
+  <script>
+    // Live check of the inputs: a one-line summary above Compute and coloured rows
+    // in both text boxes. main.py asks a worker for the numbers (see worker.summarize)
+    // and puts the answer in #live-data.
+    (function () {
+      const summary = document.getElementById('live-summary');
+      const data = document.getElementById('live-data');
+      const textBoxes = [document.getElementById('input'), document.getElementById('backbone')];
+      const checkbox = document.getElementById('requiremapped');
+
+      // Draws, behind a text box, a copy of its lines in which flagged lines are coloured.
+      function Highlighter(box) {
+        const back = box.parentElement.querySelector('.hl-back');
+        const inner = document.createElement('div');
+        back.appendChild(inner);
+        const basePadding = parseFloat(getComputedStyle(back).paddingRight);
+        let statuses = [];
+
+        function align() {
+          // The text box's scroll bar narrows its text; give the copy the same width.
+          const style = getComputedStyle(box);
+          const border = parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
+          back.style.paddingRight = (basePadding + Math.max(0, box.offsetWidth - box.clientWidth - border)) + 'px';
+          back.scrollTop = box.scrollTop;
+        }
+
+        function draw() {
+          const lines = box.value.split('\n');
+          // Statuses belong to the lines as they were checked; once lines are added or
+          // removed they no longer match, so show none until the next check.
+          const use = statuses.length === lines.length ? statuses : [];
+          inner.textContent = '';
+          lines.forEach(function (text, i) {
+            const line = document.createElement('div');
+            line.className = 'hl-line' + (use[i] ? ' ' + use[i] : '');
+            line.textContent = text === '' ? '\u200b' : text; // keeps empty lines their height
+            inner.appendChild(line);
+          });
+          align();
+        }
+
+        box.addEventListener('input', draw);
+        box.addEventListener('scroll', function () { back.scrollTop = box.scrollTop; });
+        if (window.ResizeObserver) new ResizeObserver(align).observe(box);
+        draw();
+        return { set: function (list) { statuses = list || []; draw(); }, draw: draw };
+      }
+
+      const highlighters = [new Highlighter(textBoxes[0]), new Highlighter(textBoxes[1])];
+
+      function count(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
+
+      function chip(kind, text, title) {
+        const el = document.createElement('span');
+        el.className = 'chip ' + kind;
+        el.textContent = text;
+        el.title = title;
+        return el;
+      }
+
+      function show(info) {
+        summary.textContent = '';
+        summary.classList.remove('stale', 'error');
+        if (!info) return;
+        if (!info.ok) {
+          summary.classList.add('error');
+          summary.textContent = info.error;
+          return;
+        }
+        if (!info.antibodies && !info.pairs && !info.fixed) return; // nothing typed yet
+        const plain = function (text) {
+          const el = document.createElement('span');
+          el.textContent = text;
+          return el;
+        };
+        const parts = [
+          plain(count(info.antibodies, 'antibody', 'antibodies')),
+          plain(count(info.pairs, 'pair', 'pairs'))
+        ];
+        if (info.fixed) {
+          const fixed = plain(info.fixed + ' fixed');
+          fixed.title = 'Optional input: fluorophores to penalize overlap with';
+          parts.push(fixed);
+        }
+        if (info.substituted.length) {
+          parts.push(chip('substituted', info.substituted.length + ' detector-substituted',
+            info.substituted.map(function (s) { return s.name + ' \u2192 ' + s.note; }).join('\n')));
+        }
+        if (info.unmapped.length) {
+          parts.push(chip('unmapped', info.unmapped.length + ' unmapped' + (info.require_mapped ? ' (left out)' : ''),
+            info.unmapped.map(function (s) { return s.name; }).join('\n')));
+        }
+        if (!info.substituted.length && !info.unmapped.length && info.pairs) {
+          parts.push(plain('all fluorophores found'));
+        }
+        parts.forEach(function (node, i) {
+          if (i) summary.appendChild(plain('\u00b7'));
+          summary.appendChild(node);
+        });
+      }
+
+      function load() {
+        const text = data.textContent.trim();
+        let info = null;
+        if (text) {
+          try { info = JSON.parse(text); } catch (error) { info = null; }
+        }
+        show(info);
+        highlighters[0].set(info && info.ok ? info.input_rows : []);
+        highlighters[1].set(info && info.ok ? info.backbone_rows : []);
+      }
+
+      // Until the next check arrives, grey the summary out instead of showing old numbers.
+      function stale() {
+        if (!textBoxes[0].value.trim() && !textBoxes[1].value.trim()) { show(null); return; }
+        summary.classList.add('stale');
+      }
+      textBoxes.forEach(function (box) { box.addEventListener('input', stale); });
+      checkbox.addEventListener('change', stale);
+
+      new MutationObserver(load).observe(data, { childList: true });
     })();
   </script>
 
