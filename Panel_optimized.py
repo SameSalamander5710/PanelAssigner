@@ -780,6 +780,7 @@ def prepare_search(
     canonical: bool = False,
     require_mapped: bool = False,
     metric: str = DEFAULT_METRIC,
+    max_free: Optional[int] = None,
 ) -> Optional[dict]:
     """Build the read-only search data. Returns None if nothing is assignable.
 
@@ -791,6 +792,9 @@ def prepare_search(
     `max_assigned` caps the panel size (backbone included): the search then
     looks for the best panels fitting at most that many antibodies. None, or
     anything above what is possible, means as many as can be assigned.
+    `max_free` caps the same thing but counts only the searched antibodies, not
+    the fixed backbone (which is always in the panel): the WebUI's "Fit at
+    most N of M antibodies". Give one of the two, not both.
 
     Fluorophore names (input, backbone, similarity matrix and detector map)
     are first rewritten to their canonical spelling using `aliases`, see
@@ -808,6 +812,8 @@ def prepare_search(
     """
     if top_n < 1:
         raise ValueError("top_n must be at least 1")
+    if max_assigned is not None and max_free is not None:
+        raise ValueError("Give max_assigned or max_free, not both.")
     get_metric(metric)  # reject an unknown name before any work
 
     antibodies = {
@@ -894,6 +900,10 @@ def prepare_search(
 
     free_max_count = len(_maximum_matching(all_fluors, antibodies_by_fluor))
     max_possible = len(backbone) + free_max_count
+    if max_free is not None:
+        if max_free < 1:
+            raise ValueError('"Fit at most" must be at least 1.')
+        free_max_count = min(free_max_count, max_free)
     if max_assigned is not None:
         if max_assigned < 1:
             raise ValueError('"Fit at most" (max_assigned) must be at least 1.')
@@ -1388,10 +1398,12 @@ def find_best_panels(
     max_assigned: Optional[int] = None,
     require_mapped: bool = False,
     metric: str = DEFAULT_METRIC,
+    max_free: Optional[int] = None,
 ) -> dict:
     """
     Find the exact global top_n panels among all maximum-size feasible panels.
-    With `max_assigned`, "maximum-size" means at most that many antibodies.
+    With `max_assigned`, "maximum-size" means at most that many antibodies,
+    fixed backbone included; with `max_free`, at most that many searched ones.
     Panels are ranked by `metric`, a key of METRICS (lower is better); each
     ranked panel's `matrix_complexity` is its score under that metric.
 
@@ -1429,6 +1441,7 @@ def find_best_panels(
     data = prepare_search(
         antibodies, sim_df, sim_names, det_map, top_n, backbone, aliases,
         max_assigned, require_mapped=require_mapped, metric=metric,
+        max_free=max_free,
     )
     if data is None:
         original_order = list(antibodies)

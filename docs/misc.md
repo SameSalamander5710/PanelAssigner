@@ -51,6 +51,12 @@ A fluorophore you put in your own panel is always used, whatever its Type.
   (`search_order`), which cuts off more of the search tree. This changes how
   many sets are scored and pruned, not the panels found: every panel,
   complexity and tie-break uses the alphabetical `all_fluors` order.
+- The metric scores (`_a_score` and friends) and `_score_matrix` run once per
+  search node, tens of thousands of times for a panel of this size. They use
+  `sum` and `math.*` on the eigenvalues instead of `np.mean`, `np.sqrt` and
+  `np.exp`, and skip an `isfinite` pass (the matrix was already checked), which
+  made the A- and D-optimality searches 15-30% faster. Most of what is left
+  is `numpy.linalg.eigvalsh` itself.
 - A set with two identical spectra has an infinite score (any metric) in
   theory; a non-positive or near-zero eigenvalue is reported as infinite. Such
   panels only appear when fewer than `top_n` ordinary panels exist.
@@ -96,5 +102,10 @@ A fluorophore you put in your own panel is always used, whatever its Type.
   itself, so the button needs the page to be served over http(s), not opened
   from disk. If you edit them, `tests/test_example_panel.py` checks that they
   still read cleanly (nothing substituted or unmapped) and give a full panel.
-  The "of N antibodies" count includes fixed rows such as the viability dye,
-  so it is one more than the live summary's antibody count.
+- "Fit at most N of M antibodies" counts only the antibodies of the main
+  text box (M is the live summary's antibody count). The fixed ones are always
+  in the panel and are not counted, so a panel in the results table has up to
+  N plus the number of fixed rows. In Python this is `max_free`;
+  `max_assigned` is the whole panel size, fixed rows included. The "lower
+  Fit at most to ..." advice under a similarity matrix uses the same counting
+  and never suggests leaving out a fixed fluorophore.

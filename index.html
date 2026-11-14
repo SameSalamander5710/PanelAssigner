@@ -268,7 +268,7 @@
     <div class="controls">
       <button id="run" disabled>Compute</button>
       <div class="topn-line">Show top <input id="topn" type="number" value="10" min="1"> panels.</div>
-      <div class="topn-line" title="Largest panel to attempt. Lower it to leave out antibodies whose fluorophores clash.">Fit at most <input id="maxfit" type="number" min="1"> of <span id="maxfit-total">0</span> antibodies.</div>
+      <div class="topn-line" title="Most of the antibodies in the left box to place in the panel (fixed fluorophores are always included). Lower it to leave out antibodies whose fluorophores clash.">Fit at most <input id="maxfit" type="number" min="1"> of <span id="maxfit-total">0</span> antibodies.</div>
       <div class="topn-line">Rank by <select id="metric" title="Score used to rank panels">
           <option value="condition_index">Condition index</option>
           <option value="a_optimality" selected>A-optimality (average)</option>
@@ -492,8 +492,9 @@ After Compute, the same metric is used to rank suggested additions.</span></span
   </script>
 
   <script>
-    // "Fit at most N antibodies": defaults to the number of unique antibodies
-    // in the two boxes and follows them until the user picks a lower number.
+    // "Fit at most N antibodies": N counts the antibodies of the main box, not
+    // the fixed ones (those are always in the panel). It defaults to the number
+    // of unique antibodies there and follows it until the user picks a lower number.
     (function () {
       const input = document.getElementById('input');
       const backbone = document.getElementById('backbone');
@@ -553,9 +554,10 @@ After Compute, the same metric is used to rank suggested additions.</span></span
 
       function total() {
         const fixed = new Set(backboneAntibodies(backbone.value).map(normalize));
-        // Names that differ only in case or spacing are one antibody (as in prepare_search).
+        // Names that differ only in case or spacing are one antibody (as in prepare_search),
+        // and an antibody that is also fixed counts as fixed.
         const free = new Set(antibodies(input.value).map(normalize).filter(function (a) { return !fixed.has(a); }));
-        return fixed.size + free.size;
+        return free.size;
       }
 
       function refresh() {
@@ -605,7 +607,7 @@ After Compute, the same metric is used to rank suggested additions.</span></span
       const sScroll = document.getElementById('suggest-scroll');
       const SIM_WARN = 0.9; // pairs at or above this similarity get flagged
       let panels = [];
-      let totalAntibodies = null;
+      let freeTotal = null; // antibodies of the main box, as counted by "Fit at most"
       let suggestion = null; // worker answer for the last "Suggest" click
       let metricLabel = 'Score'; // name of the metric the shown panels were ranked by
 
@@ -667,12 +669,30 @@ After Compute, the same metric is used to rank suggested additions.</span></span
         });
         warning.appendChild(list);
 
-        const size = panel.fluors.length;
-        const leaveOut = pairs.length <= 15 ? minCover(pairs) : 1;
+        // "Fit at most" counts the antibodies of the main box, and fixed fluorophores
+        // cannot be left out: a pair with one fixed member costs its other member, and
+        // a pair of two fixed ones cannot be avoided at all.
+        const isFixed = function (i) { return !!panel.fluors[i].backbone; };
+        const size = panel.fluors.filter(function (f) { return !f.backbone; }).length;
+        const forced = new Set();
+        const free = [];
+        pairs.forEach(function (pair) {
+          const a = isFixed(pair[0]), b = isFixed(pair[1]);
+          if (a && b) return;
+          if (a) forced.add(pair[1]);
+          else if (b) forced.add(pair[0]);
+          else free.push(pair);
+        });
         const advice = document.createElement('p');
-        advice.textContent = 'To avoid ' + (pairs.length === 1 ? 'it' : 'them') + ', lower \u201cFit at most\u201d to ' +
-          Math.max(1, size - leaveOut) + ' or less (this panel fits ' + size +
-          (totalAntibodies === null ? '' : ' of ' + totalAntibodies) + ' antibodies) and compute again, so an antibody of each pair is left out.';
+        if (!forced.size && !free.length) {
+          advice.textContent = 'These pairs are between fixed fluorophores, so lowering \u201cFit at most\u201d cannot avoid them.';
+        } else {
+          const rest = free.filter(function (p) { return !forced.has(p[0]) && !forced.has(p[1]); });
+          const leaveOut = forced.size + (rest.length <= 15 ? minCover(rest) : 1);
+          advice.textContent = 'To avoid ' + (pairs.length === 1 ? 'it' : 'them') + ', lower \u201cFit at most\u201d to ' +
+            Math.max(1, size - leaveOut) + ' or less (this panel fits ' + size +
+            (freeTotal === null ? '' : ' of ' + freeTotal) + ' antibodies) and compute again, so an antibody of each pair is left out.';
+        }
         warning.appendChild(advice);
       }
 
@@ -833,13 +853,13 @@ After Compute, the same metric is used to rank suggested additions.</span></span
 
       function load() {
         panels = [];
-        totalAntibodies = null;
+        freeTotal = null;
         const text = data.textContent.trim();
         if (text) {
           try {
             const parsed = JSON.parse(text);
             panels = parsed.panels || [];
-            totalAntibodies = parsed.total === undefined ? null : parsed.total;
+            freeTotal = parsed.free_total === undefined ? null : parsed.free_total;
             metricLabel = parsed.metric_label || 'Score';
           } catch (error) { panels = []; }
         }

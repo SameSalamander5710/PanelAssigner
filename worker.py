@@ -192,7 +192,8 @@ def setup(text, top_n=10, backbone_text="", max_fit="", require_mapped="",
 
     `metric` is the key of the score panels are ranked by (`P.METRICS`).
 
-    `max_fit` is the "fit at most N antibodies" limit; blank means no limit.
+    `max_fit` is the "fit at most N antibodies" limit on the antibodies of the
+    main text box (the fixed backbone is always included); blank means no limit.
     `require_mapped` ("1", "true" or True) leaves out fluorophores that have
     no similarity data instead of treating them as overlapping with nothing."""
     try:
@@ -206,13 +207,13 @@ def setup(text, top_n=10, backbone_text="", max_fit="", require_mapped="",
         max_fit = str(max_fit).strip()
         if max_fit and not max_fit.isdigit():
             raise ValueError('"Fit at most" must be a whole number of antibodies.')
-        max_assigned = int(max_fit) if max_fit else None
+        max_free = int(max_fit) if max_fit else None
         require_mapped = str(require_mapped).strip().lower() in ("1", "true", "yes", "on")
         backbone = parse_backbone(backbone_text)
         antibodies = parse_pasted(text, required=not backbone)
         data = P.prepare_search(
             antibodies, REF_SIM, REF_NAMES, REF_DET, top_n,
-            backbone=backbone, aliases=ALIASES, max_assigned=max_assigned,
+            backbone=backbone, aliases=ALIASES, max_free=max_free,
             canonical=True, require_mapped=require_mapped, metric=metric,
         )
         if data is None:
@@ -224,6 +225,7 @@ def setup(text, top_n=10, backbone_text="", max_fit="", require_mapped="",
         tasks = P.make_search_tasks(data, TARGET_TASKS)
         STATE.update(data=data, tasks=tasks, top_n=top_n, metric=metric,
                      total=len(data["original_order"]),
+                     free_total=len(data["free_original_order"]),
                      max_count=data["max_count"],
                      max_possible=data["max_possible"],
                      merged=data["merged_antibodies"],
@@ -374,7 +376,8 @@ def finalize(results_json):
         "has_unmapped": with_unmapped > 0,
         "html": "".join(parts),
         "substitutions_html": "".join(substitution_parts),
-        "matrices_json": json.dumps({"total": STATE["total"], "panels": matrices,
+        "matrices_json": json.dumps({"total": STATE["total"],
+                                     "free_total": STATE["free_total"], "panels": matrices,
                                      "metric": STATE["metric"], "metric_label": label},
                                     allow_nan=False),
     })
