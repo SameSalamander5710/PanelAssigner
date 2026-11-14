@@ -195,8 +195,11 @@
     .matrix-table td.hot { outline: 2px solid #c0392b; outline-offset: -2px; }
     .matrix-table th.base { background: #d9d9d9; }
     .matrix-table th.new { background: #b7e4c7; }
+    .matrix-table .fixed-left { border-left: 2px solid #7b2cbf; }
+    .matrix-table .fixed-top { border-top: 2px solid #7b2cbf; }
     .matrix-table .edge-left { border-left: 2px solid #2d6a4f; }
     .matrix-table .edge-top { border-top: 2px solid #2d6a4f; }
+    .legend .swatch.fixed { width: 0; border: none; border-left: 2px solid #7b2cbf; }
     .legend .swatch.base { background: #d9d9d9; }
     .legend .swatch.new { background: #b7e4c7; }
     .suggest-controls { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .5rem; }
@@ -264,6 +267,7 @@
           <div class="output-footer">
             <div class="legend">
               <span class="item">0<span class="swatch scale"></span>1 similarity</span>
+              <span id="matrix-fixed-key" class="item" hidden><span class="swatch fixed"></span>Line: fixed by you (optional input) | found by the search</span>
             </div>
           </div>
         </div>
@@ -288,6 +292,7 @@
                 <span class="item">0<span class="swatch scale"></span>1 similarity</span>
                 <span class="item"><span class="swatch base"></span>Panel fluorophores</span>
                 <span class="item"><span class="swatch new"></span>Suggested additions</span>
+                <span id="suggest-fixed-key" class="item" hidden><span class="swatch fixed"></span>Line: fixed by you (optional input) | found by the search</span>
               </div>
             </div>
           </div>
@@ -532,6 +537,8 @@
       const input = document.getElementById('matrix-panel');
       const count = document.getElementById('matrix-count');
       const ci = document.getElementById('matrix-ci');
+      const fixedKey = document.getElementById('matrix-fixed-key');
+      const sFixedKey = document.getElementById('suggest-fixed-key');
       const scroll = document.getElementById('matrix-scroll');
       const warning = document.getElementById('matrix-warning');
       const suggestPanel = document.getElementById('suggest-panel');
@@ -616,8 +623,19 @@
         warning.appendChild(advice);
       }
 
+      // True where a fixed (optional input) fluorophore meets a searched one, so
+      // that a line can show what the user fixed and what the search chose.
+      function fixedEdge(fluors, j) {
+        return j > 0 && !!fluors[j].backbone !== !!fluors[j - 1].backbone;
+      }
+
+      function hasFixedEdge(fluors) {
+        return fluors.some(function (f, j) { return fixedEdge(fluors, j); });
+      }
+
       // groups (optional): 'base' / 'new' per fluorophore, for the suggestion
-      // matrix. The first 'new' row and column get a line to mark the border.
+      // matrix. The first 'new' row and column get a line to mark the border,
+      // and so does the border between fixed and searched fluorophores.
       function buildTable(fluors, values, groups) {
         const firstNew = groups ? groups.indexOf('new') : -1;
         const table = document.createElement('table');
@@ -626,6 +644,7 @@
         head.appendChild(document.createElement('th'));
         fluors.forEach(function (f, j) {
           const th = headerCell(f, 'col-head', groups && groups[j]);
+          if (fixedEdge(fluors, j)) th.classList.add('fixed-left');
           if (j === firstNew) th.classList.add('edge-left');
           head.appendChild(th);
         });
@@ -634,6 +653,7 @@
         fluors.forEach(function (rowFluor, i) {
           const row = body.insertRow();
           const rowHead = headerCell(rowFluor, 'row-head', groups && groups[i]);
+          if (fixedEdge(fluors, i)) rowHead.classList.add('fixed-top');
           if (i === firstNew) rowHead.classList.add('edge-top');
           row.appendChild(rowHead);
           fluors.forEach(function (colFluor, j) {
@@ -648,6 +668,8 @@
               cell.textContent = v === 0 ? '0' : v.toFixed(2);
               cell.title = rowFluor.name + ' \u00d7 ' + colFluor.name + ': ' + v.toFixed(3);
             }
+            if (fixedEdge(fluors, j)) cell.classList.add('fixed-left');
+            if (fixedEdge(fluors, i)) cell.classList.add('fixed-top');
             if (j === firstNew) cell.classList.add('edge-left');
             if (i === firstNew) cell.classList.add('edge-top');
           });
@@ -672,6 +694,7 @@
         showWarning(panel);
         ci.textContent = 'Matrix CI: ' + (panel.ci === null ? 'inf' : panel.ci.toFixed(4));
 
+        fixedKey.hidden = !hasFixedEdge(panel.fluors);
         suggestPanel.textContent = n;
         updateSuggestPool();
         sSection.hidden = suggestion === null || suggestion.panel !== n;
@@ -691,6 +714,7 @@
         });
         const groups = base.fluors.map(function () { return 'base'; })
           .concat(added.map(function () { return 'new'; }));
+        sFixedKey.hidden = !hasFixedEdge(base.fluors);
         sCi.textContent = 'Matrix CI: ' + item.ci.toFixed(4) + ' (panel ' + suggestion.panel + ': ' + suggestion.base_ci.toFixed(4) + ')';
         sScroll.appendChild(buildTable(base.fluors.concat(added), item.values, groups));
       }
