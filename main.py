@@ -54,9 +54,9 @@ async def start():
     await refresh_live()  # the browser may have restored text from an earlier visit
 
 
-async def drive(worker, text, backbone, top_n, max_fit, require_mapped, state):  # top_n is an int here
+async def drive(worker, text, backbone, top_n, max_fit, require_mapped, metric, state):  # top_n is an int here
     """One loop per worker: set up, then keep pulling the next unclaimed subtree."""
-    info = json.loads(await worker.setup(text, str(top_n), backbone, max_fit, require_mapped))
+    info = json.loads(await worker.setup(text, str(top_n), backbone, max_fit, require_mapped, metric))
     if not info["ok"]:
         state["error"] = info["error"]
         return
@@ -113,7 +113,8 @@ async def compute(event):
     top_n = int(document.getElementById("topn").value)
     max_fit = document.getElementById("maxfit").value  # "" = no limit
     require_mapped = "1" if document.getElementById("requiremapped").checked else ""
-    await asyncio.gather(*[drive(w, text, backbone, top_n, max_fit, require_mapped, state) for w in pool])
+    metric = document.getElementById("metric").value  # key of Panel_optimized.METRICS
+    await asyncio.gather(*[drive(w, text, backbone, top_n, max_fit, require_mapped, metric, state) for w in pool])
 
     if state["error"]:
         status.innerText = "Error: " + state["error"]

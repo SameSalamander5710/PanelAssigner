@@ -183,12 +183,15 @@ def _prepare_similarity(
     return base, mapped_index, substitutions, unmapped
 
 
+_EIGENVALUE_TOL = 1e-12
+
+
 def _complexity_for_set(
     fluor_set: Sequence[str],
     base_similarity: np.ndarray,
     mapped_index: Dict[str, int],
 ) -> float:
-    """Calculate the same eigenvalue-ratio complexity used in the original."""
+    """A-optimality score: the mean of the reciprocal eigenvalues of S."""
     n = len(fluor_set)
     if n < 2:
         return 1.0
@@ -212,11 +215,13 @@ def _complexity_for_set(
         return float("inf")
 
     eigenvalues = np.linalg.eigvalsh(S)
-    smallest = eigenvalues[0]
-    if not np.isfinite(eigenvalues).all() or smallest <= 0:
+    if (
+        not np.isfinite(eigenvalues).all()
+        or eigenvalues[0] <= _EIGENVALUE_TOL
+    ):
         return float("inf")
 
-    return float(np.sqrt(eigenvalues[-1] / smallest))
+    return float(np.mean(1.0 / eigenvalues))
 
 
 _WORKER_DATA = None
@@ -434,7 +439,7 @@ if __name__ == "__main__":
 
     for rank, panel in enumerate(result["ranked_panels"], 1):
         print(
-            f"\nRank {rank} - Matrix CI: "
+            f"\nRank {rank} - A-optimality: "
             f"{panel['matrix_complexity']:.4f}"
         )
         for antibody, fluor in panel["assignments"].items():

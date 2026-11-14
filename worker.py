@@ -186,8 +186,11 @@ def summarize(text, backbone_text="", require_mapped=""):
         return json.dumps({"ok": False, "error": str(exc)})
 
 
-def setup(text, top_n=10, backbone_text="", max_fit="", require_mapped=""):
+def setup(text, top_n=10, backbone_text="", max_fit="", require_mapped="",
+          metric=P.DEFAULT_METRIC):
     """Every worker runs this with the same input and builds the same task list.
+
+    `metric` is the key of the score panels are ranked by (`P.METRICS`).
 
     `max_fit` is the "fit at most N antibodies" limit; blank means no limit.
     `require_mapped` ("1", "true" or True) leaves out fluorophores that have
@@ -198,6 +201,8 @@ def setup(text, top_n=10, backbone_text="", max_fit="", require_mapped=""):
         if REF_ERROR:
             raise ValueError(REF_ERROR)
         top_n = int(top_n)
+        metric = str(metric or P.DEFAULT_METRIC)
+        P.get_metric(metric)  # an unknown name is reported in the UI
         max_fit = str(max_fit).strip()
         if max_fit and not max_fit.isdigit():
             raise ValueError('"Fit at most" must be a whole number of antibodies.')
@@ -208,7 +213,7 @@ def setup(text, top_n=10, backbone_text="", max_fit="", require_mapped=""):
         data = P.prepare_search(
             antibodies, REF_SIM, REF_NAMES, REF_DET, top_n,
             backbone=backbone, aliases=ALIASES, max_assigned=max_assigned,
-            canonical=True, require_mapped=require_mapped,
+            canonical=True, require_mapped=require_mapped, metric=metric,
         )
         if data is None:
             raise ValueError(
@@ -217,7 +222,7 @@ def setup(text, top_n=10, backbone_text="", max_fit="", require_mapped=""):
                 if require_mapped else "No assignable antibody/fluorophore pairs."
             )
         tasks = P.make_search_tasks(data, TARGET_TASKS)
-        STATE.update(data=data, tasks=tasks, top_n=top_n,
+        STATE.update(data=data, tasks=tasks, top_n=top_n, metric=metric,
                      total=len(data["original_order"]),
                      max_count=data["max_count"],
                      max_possible=data["max_possible"],
@@ -269,7 +274,7 @@ def finalize(results_json):
         backbone_fluors = set(panel.get("backbone", {}).values())
         matrix = P.panel_similarity_matrix(STATE["data"], labels)
         matrices.append({
-            "ci": complexity if math.isfinite(complexity) else None,
+            "score": complexity if math.isfinite(complexity) else None,
             "candidates": P.eligible_fluorophore_count(
                 REF_SIM, REF_NAMES, REF_DET, labels, ALIASES, REF_TYPES,
                 canonical=True,
@@ -319,12 +324,13 @@ def finalize(results_json):
                 parts.append('<td class="unassigned" title="unassigned"></td>')
         parts.append("</tr>")
 
-    parts.append('</tbody><tfoot><tr class="ci-row"><th colspan="2">Matrix_CI</th>')
+    label = P.get_metric(STATE["metric"]).label
+    parts.append(f'</tbody><tfoot><tr class="ci-row"><th colspan="2">{esc(label)}</th>')
     for c, _, _ in best:
         parts.append(f'<td class="num">{c:.4f}</td>')
     parts.append("</tr></tfoot></table>")
     # Fluorophores without similarity data count as overlapping with nothing,
-    # which flatters the Matrix_CI above; the hover notes say how many.
+    # which flatters the score above; the hover notes say how many.
     n_unmapped = [len(panel["unmapped_fluors"]) for _, _, panel in best]
 
     substitutions = sorted({
@@ -354,7 +360,7 @@ def finalize(results_json):
     if with_unmapped:
         notes.append(
             f"{with_unmapped} of {len(best)} panels contain fluorophores with no similarity "
-            "data (yellow); their overlap is not counted, so their Matrix_CI is too good. "
+            "data (yellow); their overlap is not counted, so their score is too good. "
             "Tick the option to use only fluorophores in the matrix to leave them out."
         )
     if STATE["dropped_unmapped"]:
@@ -368,7 +374,8 @@ def finalize(results_json):
         "has_unmapped": with_unmapped > 0,
         "html": "".join(parts),
         "substitutions_html": "".join(substitution_parts),
-        "matrices_json": json.dumps({"total": STATE["total"], "panels": matrices},
+        "matrices_json": json.dumps({"total": STATE["total"], "panels": matrices,
+                                     "metric": STATE["metric"], "metric_label": label},
                                     allow_nan=False),
     })
 
@@ -389,13 +396,15 @@ def suggest(panel_no, n=1):
         result = P.suggest_additions(
             REF_SIM, REF_NAMES, REF_DET, panels[panel_no - 1], n, top_n=5,
             aliases=ALIASES, types=REF_TYPES, canonical=True,
+            metric=STATE["metric"],  # the metric the panels were ranked by
         )
         return json.dumps({
             "ok": True, "panel": panel_no, "n": n,
-            "base_ci": result["base_complexity"],
+            "metric_label": P.get_metric(STATE["metric"]).label,
+            "base_score": result["base_complexity"],
             "candidates": result["candidates"],
             "combinations": result["combinations"],
-            "suggestions": [{"fluors": s["fluors"], "ci": s["matrix_complexity"],
+            "suggestions": [{"fluors": s["fluors"], "score": s["matrix_complexity"],
                              "values": s["values"]} for s in result["suggestions"]],
         }, allow_nan=False)
     except Exception as exc:
