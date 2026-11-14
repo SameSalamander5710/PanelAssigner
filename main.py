@@ -15,7 +15,8 @@ suggest_data = document.getElementById("suggest-data")  # ... and the suggestion
 mapped_info = document.getElementById("requiremapped-info")  # hover notes for the matrix option
 mapped_tip = document.getElementById("requiremapped-tip")
 live_data = document.getElementById("live-data")  # ... and the live summary of the inputs from this
-live_ticket = 0
+live_pending = False  # input changed since the last live check
+live_running = False  # a live check is between the debounce and the worker reply
 
 
 def set_mapped_info(notes, has_unmapped=False):
@@ -29,21 +30,39 @@ def set_mapped_info(notes, has_unmapped=False):
 
 
 async def refresh_live():
-    """Check the inputs on a worker once typing pauses; index.html shows the answer."""
-    global live_ticket
-    live_ticket += 1
-    mine = live_ticket
-    await asyncio.sleep(0.3)  # newer typing makes this ticket stale
-    if mine != live_ticket or not pool or run_btn.disabled:  # not ready, or a compute is running
+    """Check the inputs on a worker once typing pauses; index.html shows the answer.
+
+    Only one check runs at a time: overlapping calls to the same worker get
+    stuck, so an edit made while a check is in flight just marks the result
+    stale and the loop runs again when the worker is free.
+    """
+    global live_pending, live_running
+    live_pending = True
+    if live_running or not pool or run_btn.disabled:  # not ready, or a compute is running
         return
-    require_mapped = "1" if document.getElementById("requiremapped").checked else ""
-    raw = await pool[-1].summarize(  # the last worker: w0 holds the panels for Suggest
-        document.getElementById("input").value,
-        document.getElementById("backbone").value,
-        require_mapped,
-    )
-    if mine == live_ticket:
-        live_data.textContent = raw
+    live_running = True
+    try:
+        while live_pending and pool and not run_btn.disabled:
+            live_pending = False
+            await asyncio.sleep(0.3)  # newer typing sets live_pending again
+            if live_pending:
+                continue  # still typing: wait for another pause
+            require_mapped = "1" if document.getElementById("requiremapped").checked else ""
+            raw = await pool[-1].summarize(  # the last worker: w0 holds the panels for Suggest
+                document.getElementById("input").value,
+                document.getElementById("backbone").value,
+                require_mapped,
+            )
+            if not live_pending:
+                live_data.textContent = raw
+    finally:
+        live_running = False
+
+
+async def wait_for_live():
+    """Let an in-flight live check finish before a compute uses the same worker."""
+    while live_running:
+        await asyncio.sleep(0.05)
 
 
 async def start():
@@ -114,6 +133,7 @@ async def compute(event):
     max_fit = document.getElementById("maxfit").value  # "" = no limit
     require_mapped = "1" if document.getElementById("requiremapped").checked else ""
     metric = document.getElementById("metric").value  # key of Panel_optimized.METRICS
+    await wait_for_live()  # the live check shares a worker with Compute
     await asyncio.gather(*[drive(w, text, backbone, top_n, max_fit, require_mapped, metric, state) for w in pool])
 
     if state["error"]:
