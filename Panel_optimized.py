@@ -1,22 +1,33 @@
 """
 Exact, set-based optimizer for antibody/fluorophore panels (branch and bound).
 
-The objective (spectral matrix complexity) depends only on the selected
-fluorophore set, not on which antibody receives each fluorophore, so each
-feasible fluorophore set is scored once.
+The objective (a score of the panel's similarity matrix, see METRICS) depends
+only on the selected fluorophore set, not on which antibody receives each
+fluorophore, so each feasible fluorophore set is scored once.
+
+Scores. With S the similarity matrix of a set and lambda_i its eigenvalues
+(S is the cosine-similarity matrix of the spectra, a Fisher-information-like
+matrix, so 1/lambda_i are the eigenvalues of the Cramer-Rao bound; see Rajwa
+& Roederer, Cytometry A 2025, doi:10.1002/cyto.a.24972), the four metrics are
+all "lower is better" and all equal 1.0 for perfectly distinct spectra:
+- condition_index: sqrt(lambda_max / lambda_min)
+- a_optimality:    mean(1 / lambda_i)           average variance inflation
+- d_optimality:    det(S) ** (-1 / n)           geometric mean of 1 / lambda_i
+- e_optimality:    1 / lambda_min               worst-direction inflation
 
 Exactness and pruning:
 - The maximum panel size comes from bipartite matching.
 - Every fluorophore set of that size that can be matched to distinct
   antibodies is a candidate; the globally best top_n sets are returned.
-- The A-optimality score (mean variance inflation factor) of a set is computed
-  from a principal submatrix of one global similarity matrix:
-  (1/n) * sum(1 / lambda_i). By Cauchy interlacing, the trace of the inverse
-  can never decrease when a fluorophore is added. A partial set whose score,
-  scaled to the final panel size, is already worse than the current n-th best
-  therefore cannot lead to a top_n panel, and its whole branch is skipped.
-  This is exact: no heuristic cut-off, no sampling; ties are resolved exactly
-  as in an exhaustive search.
+- The score of a set is computed from a principal submatrix of one global
+  similarity matrix. By Cauchy interlacing, adding a fluorophore can never
+  raise lambda_min or lower tr(S^-1), and (since the diagonal is 1) it can
+  never raise det(S). So, for every metric, a lower bound on the score of the
+  final panel follows from a partial set (see `_Metric.lower_bound`). A
+  partial set whose bound is already worse than the current n-th best cannot
+  lead to a top_n panel, and its whole branch is skipped. This is exact: no
+  heuristic cut-off, no sampling; ties are resolved exactly as in an
+  exhaustive search.
 - A small tolerance (1e-9 relative) keeps floating-point noise from ever
   discarding a branch that could still tie for a top_n place.
 
@@ -31,7 +42,7 @@ import math
 import os
 import re
 from functools import lru_cache
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, NamedTuple, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -512,34 +523,146 @@ def panel_similarity_matrix(data: dict, fluor_set: Sequence[str]) -> np.ndarray:
     return _similarity_submatrix(fluor_set, data["base"], data["mapped_index"])
 
 
+INF = float("inf")
+_EIGENVALUE_TOL = 1e-12
+_RTOL = 1e-9
+_ATOL = 1e-12
+
+
+class _Metric(NamedTuple):
+    """One panel score. Lower is better and 1.0 means perfectly distinct spectra.
+
+    score(w):           score from the ascending eigenvalues w of S (all > 0).
+    lower_bound(c,m,N): lower bound on the final score of a panel of N
+                        fluorophores, from the score c of a subset of m.
+    pair_limit(b,N):    similarity |s| above which any panel of N fluorophores
+                        containing such a pair scores worse than b (b >= 1).
+    """
+
+    label: str
+    description: str
+    score: Callable[[np.ndarray], float]
+    lower_bound: Callable[[float, int, int], float]
+    pair_limit: Callable[[float, int], float]
+
+
+# Interlacing facts behind the bounds (S has unit diagonal; subset T of set U):
+#   lambda_min(U) <= lambda_min(T), lambda_max(U) >= lambda_max(T)
+#   tr(U^-1) >= tr(T^-1) + (|U| - |T|), because (U^-1)_TT >= T^-1 (Schur
+#   complement) and every other diagonal entry of U^-1 is >= 1
+#   det(U) <= det(T), because every Schur complement is <= 1
+# A pair with similarity s is the 2x2 subset with eigenvalues 1 +- |s|.
+def _ci_score(w: np.ndarray) -> float:
+    return float(np.sqrt(w[-1] / w[0]))
+
+
+def _a_score(w: np.ndarray) -> float:
+    return float(np.mean(1.0 / w))
+
+
+def _d_score(w: np.ndarray) -> float:
+    return float(np.exp(-np.mean(np.log(w))))
+
+
+def _e_score(w: np.ndarray) -> float:
+    return float(1.0 / w[0])
+
+
+def _same_score(score: float, m: int, n: int) -> float:
+    return score  # condition index and E-optimality never decrease on adding
+
+
+def _a_lower_bound(score: float, m: int, n: int) -> float:
+    return (m * score + (n - m)) / n
+
+
+def _d_lower_bound(score: float, m: int, n: int) -> float:
+    return score ** (m / n)
+
+
+def _ci_pair_limit(bound: float, n: int) -> float:
+    return (bound * bound - 1.0) / (bound * bound + 1.0)
+
+
+def _a_pair_limit(bound: float, n: int) -> float:
+    # (2 / (1 - s^2) + n - 2) / n > bound
+    x = n * (bound - 1.0)
+    return math.sqrt(x / (x + 2.0))
+
+
+def _d_pair_limit(bound: float, n: int) -> float:
+    # (1 - s^2) ** (-1 / n) > bound
+    return math.sqrt(max(0.0, 1.0 - bound ** (-n)))
+
+
+def _e_pair_limit(bound: float, n: int) -> float:
+    return 1.0 - 1.0 / bound
+
+
+METRICS: Dict[str, _Metric] = {
+    "condition_index": _Metric(
+        "Condition index",
+        "Square root of the condition number of the similarity matrix "
+        "(largest over smallest eigenvalue).",
+        _ci_score, _same_score, _ci_pair_limit,
+    ),
+    "a_optimality": _Metric(
+        "A-optimality",
+        "Average variance inflation: the mean of 1 / eigenvalue. Penalizes "
+        "every overlapping fluorophore.",
+        _a_score, _a_lower_bound, _a_pair_limit,
+    ),
+    "d_optimality": _Metric(
+        "D-optimality",
+        "Total information: det(S) to the power -1/n, the geometric mean of "
+        "1 / eigenvalue. Rewards the volume the spectra span.",
+        _d_score, _d_lower_bound, _d_pair_limit,
+    ),
+    "e_optimality": _Metric(
+        "E-optimality",
+        "Worst-direction inflation: 1 / smallest eigenvalue. Only the single "
+        "most overlapping combination counts.",
+        _e_score, _same_score, _e_pair_limit,
+    ),
+}
+DEFAULT_METRIC = "a_optimality"
+
+
+def get_metric(name: str) -> _Metric:
+    """The metric called `name` (a key of METRICS)."""
+    try:
+        return METRICS[name]
+    except KeyError:
+        raise ValueError(
+            f"Unknown metric {name!r}; choose one of {', '.join(METRICS)}."
+        ) from None
+
+
+def _score_matrix(S: np.ndarray, metric: _Metric) -> float:
+    """Score of a similarity matrix: inf if it is not safely positive definite."""
+    eigenvalues = np.linalg.eigvalsh(S)
+    if not np.isfinite(eigenvalues).all() or eigenvalues[0] <= _EIGENVALUE_TOL:
+        return INF
+    return metric.score(eigenvalues)
+
+
 def _complexity_for_set(
     fluor_set: Sequence[str],
     base_similarity: np.ndarray,
     mapped_index: Dict[str, int],
+    metric: str = DEFAULT_METRIC,
 ) -> float:
-    """A-optimality score: the mean of the reciprocal eigenvalues of S."""
+    """Score of a fluorophore set under `metric` (see METRICS); lower is better."""
+    scorer = get_metric(metric)
     if len(fluor_set) < 2:
         return 1.0
 
     S = _similarity_submatrix(fluor_set, base_similarity, mapped_index)
 
     if not np.isfinite(S).all():
-        return float("inf")
+        return INF
 
-    eigenvalues = np.linalg.eigvalsh(S)
-    if (
-        not np.isfinite(eigenvalues).all()
-        or eigenvalues[0] <= _EIGENVALUE_TOL
-    ):
-        return float("inf")
-
-    return float(np.mean(1.0 / eigenvalues))
-
-
-INF = float("inf")
-_EIGENVALUE_TOL = 1e-12
-_RTOL = 1e-9
-_ATOL = 1e-12
+    return _score_matrix(S, scorer)
 
 
 def _worse_than(complexity: float, limit: float) -> bool:
@@ -548,10 +671,11 @@ def _worse_than(complexity: float, limit: float) -> bool:
 
 
 def _set_complexity(fluor_set: Sequence[str], data: dict) -> float:
-    """Complexity of the fixed backbone plus a candidate free fluorophore set."""
+    """Score of the fixed backbone plus a candidate free fluorophore set."""
     backbone = data.get("backbone_fluors") or []
     return _complexity_for_set(
-        list(backbone) + list(fluor_set), data["base"], data["mapped_index"]
+        list(backbone) + list(fluor_set), data["base"], data["mapped_index"],
+        data["metric"],
     )
 
 
@@ -559,7 +683,7 @@ _PAIR_SAFE = 1.0 - 1e-9  # closer to 1 than this, leave the pair to the eigenval
 
 
 class _SetComplexity:
-    """Complexity of a fixed set plus fluorophores added one after another.
+    """Score of a fixed set plus fluorophores added one after another.
 
     The similarity matrix of the whole set is kept in a work array that grows
     row by row, so adding a fluorophore costs one row lookup and one
@@ -568,7 +692,11 @@ class _SetComplexity:
     that can occur, and fluorophores are given by their row in it.
     """
 
-    def __init__(self, M: np.ndarray, base_rows: Sequence[int], max_extra: int) -> None:
+    def __init__(
+        self, M: np.ndarray, base_rows: Sequence[int], max_extra: int,
+        metric: str = DEFAULT_METRIC,
+    ) -> None:
+        self.metric = get_metric(metric)
         self.M = M
         self.nb = len(base_rows)
         size = self.nb + max_extra
@@ -585,11 +713,10 @@ class _SetComplexity:
     def push(self, depth: int, row: int) -> float:
         """Make `row` the added fluorophore number `depth` (0 = first).
 
-        Returns its largest similarity to the fluorophores before it. By
-        eigenvalue interlacing, a set containing a pair with similarity s has
-        an A-optimality score of at least 1 / (N * (1 - |s|)) for a final
-        panel of N fluorophores, so this can rule a set out without solving
-        for eigenvalues.
+        Returns its largest similarity to the fluorophores before it. A set
+        containing a pair with similarity s is bounded below by the metric's
+        score of that 2x2 subset (see `_Metric.pair_limit`), so this can rule
+        a set out without solving for eigenvalues.
         """
         m = self.nb + depth
         self.rows[m] = row
@@ -601,40 +728,38 @@ class _SetComplexity:
         return float(np.abs(values).max() if self.signed else values.max())
 
     def complexity(self, depth: int) -> float:
-        """A-optimality score with the first `depth + 1` added fluorophores (-1: none)."""
+        """Score with the first `depth + 1` added fluorophores (-1: none)."""
         m = self.nb + depth + 1
         if m < 2:
             return 1.0
         S = self.W[:m, :m]
         if not self.finite and not np.isfinite(S).all():
             return INF
-        eigenvalues = np.linalg.eigvalsh(S)
-        if (
-            not np.isfinite(eigenvalues).all()
-            or eigenvalues[0] <= _EIGENVALUE_TOL
-        ):
-            return INF
-        return float(np.mean(1.0 / eigenvalues))
+        return _score_matrix(S, self.metric)
 
-    def lower_bound(self, depth: int) -> float:
+    def lower_bound(self, depth: int, score: Optional[float] = None) -> float:
         """Lower bound on the final score after adding more fluorophores.
 
-        Cauchy interlacing makes tr(S^-1) grow with the panel size, so the
-        current mean, scaled by (current size / final size), cannot exceed the
-        final mean.
+        `score` is `complexity(depth)` if the caller has it already.
         """
         m = self.nb + depth + 1
         if m < 2:
             return 1.0
-        return max(1.0, (m / self.final_size) * self.complexity(depth))
+        if score is None:
+            score = self.complexity(depth)
+        return self.metric.lower_bound(score, m, self.final_size)
+
+    def pair_limit(self, limit: float) -> float:
+        """Pair similarity above which a set is provably worse than `limit`."""
+        return _pair_limit(limit, self.final_size, self.metric)
 
 
-def _pair_limit(limit: float, final_size: int) -> float:
+def _pair_limit(limit: float, final_size: int, metric: _Metric) -> float:
     """Pair similarity above which a set is provably worse than `limit`."""
     if limit == INF:
         return 2.0  # nothing is that similar
     bound = limit * (1.0 + _RTOL) + _ATOL
-    return 1.0 - 1.0 / (final_size * bound)
+    return metric.pair_limit(bound, final_size)
 
 
 def prepare_search(
@@ -648,8 +773,11 @@ def prepare_search(
     max_assigned: Optional[int] = None,
     canonical: bool = False,
     require_mapped: bool = False,
+    metric: str = DEFAULT_METRIC,
 ) -> Optional[dict]:
     """Build the read-only search data. Returns None if nothing is assignable.
+
+    `metric` is the score panels are ranked by (a key of METRICS).
 
     `canonical=True` says that sim_df, sim_names and det_map already come from
     `prepare_reference`, so they are not rewritten again.
@@ -674,6 +802,7 @@ def prepare_search(
     """
     if top_n < 1:
         raise ValueError("top_n must be at least 1")
+    get_metric(metric)  # reject an unknown name before any work
 
     antibodies = {
         antibody: [canonicalize_fluorophore(f, aliases) for f in fluors]
@@ -800,7 +929,7 @@ def prepare_search(
         "backbone_fluors": backbone_fluors,
         "base": base,
         "mapped_index": mapped_index, "substitutions": substitutions,
-        "unmapped": unmapped, "top_n": top_n,
+        "unmapped": unmapped, "top_n": top_n, "metric": metric,
     }
 
 
@@ -908,7 +1037,9 @@ def search_subtree(data: dict, task: tuple, bound: float = INF):
     n_order = len(order)
     rows = [label_pos[f] for f in order]  # row of each fluorophore in M
     options = [afb[f] for f in order]  # its antibodies
-    builder = _SetComplexity(data["M"], [label_pos[f] for f in backbone_fluors], k)
+    builder = _SetComplexity(
+        data["M"], [label_pos[f] for f in backbone_fluors], k, data["metric"]
+    )
 
     def limit() -> float:
         return min(bound, best[-1][0]) if len(best) >= top_n else bound
@@ -983,11 +1114,11 @@ def search_subtree(data: dict, task: tuple, bound: float = INF):
                 continue  # no antibody assignment for these fluorophores
             top_similarity = builder.push(depth, rows[i])
             current = limit()
-            if current != INF and _PAIR_SAFE > top_similarity > _pair_limit(current, builder.final_size):
+            if current != INF and _PAIR_SAFE > top_similarity > builder.pair_limit(current):
                 pruned += 1  # one pair is already too similar
                 continue
             if _worse_than(builder.lower_bound(depth), current):
-                pruned += 1  # a lower bound grows when adding more fluorophores
+                pruned += 1  # the bound can only grow when adding more fluorophores
             elif needed == 1:
                 chosen.append(i)
                 leaf(chosen)
@@ -1035,6 +1166,7 @@ def _suggestion_pool(
     types: Optional[Dict[str, str]] = None,
     allowed_types: Sequence[str] = SUGGESTED_TYPES,
     canonical: bool = False,
+    metric: str = DEFAULT_METRIC,
 ) -> dict:
     """Prepare the eligible additions shared by the suggestion functions.
 
@@ -1079,7 +1211,7 @@ def _suggestion_pool(
     labels = panel + candidates
     M = _similarity_submatrix(labels, base, mapped_index)
     label_pos = {name: len(panel) + i for i, name in enumerate(candidates)}
-    builder = _SetComplexity(M, range(len(panel)), 1)
+    builder = _SetComplexity(M, range(len(panel)), 1, metric)
 
     base_complexity = builder.complexity(-1)
     if not np.isfinite(base_complexity):
@@ -1125,7 +1257,7 @@ def eligible_fluorophore_count(
     Returns 0 when the panel itself has infinite complexity, since then no
     addition can be ranked.
     """
-    try:
+    try:  # which candidates are finite does not depend on the metric
         return len(_suggestion_pool(
             sim_df, sim_names, det_map, panel_fluors, aliases, types, allowed_types,
             canonical,
@@ -1145,20 +1277,20 @@ def suggest_additions(
     types: Optional[Dict[str, str]] = None,
     allowed_types: Sequence[str] = SUGGESTED_TYPES,
     canonical: bool = False,
+    metric: str = DEFAULT_METRIC,
 ) -> dict:
     """Best sets of `n` extra fluorophores to add to an existing panel.
 
     Candidates are all fluorophores of the reference matrix that the panel
     does not use yet (only those of an allowed Type, when `types` is given,
     so dyes and fluorescent proteins are not suggested as antibody labels).
-    Sets are ranked by the A-optimality score of the panel plus the new
-    fluorophores. This is exact: tr(S^-1) never decreases when a fluorophore
-    is added, so a partial set whose score, scaled to the final panel size, is
-    already worse than the current top_n is skipped. (The best n+1 set does
-    not always contain the best n set, so adding one at a time would not be
-    exact.)
+    Sets are ranked by the `metric` score of the panel plus the new
+    fluorophores. This is exact: a partial set whose lower bound on the final
+    score (see `_Metric.lower_bound`) is already worse than the current top_n
+    is skipped. (The best n+1 set does not always contain the best n set, so
+    adding one at a time would not be exact.)
 
-    Returns {"base_complexity", "candidates", "combinations", "suggestions":
+    Returns {"metric", "base_complexity", "candidates", "combinations", "suggestions":
     [{"fluors", "matrix_complexity", "values"}]}, where `candidates` is the
     number of eligible fluorophores, `combinations` is how many `n`-sized sets
     they form, and `values` is the similarity matrix of the panel followed by
@@ -1168,7 +1300,7 @@ def suggest_additions(
         raise ValueError(f"Choose between 1 and {MAX_SUGGESTED} fluorophores to add.")
     context = _suggestion_pool(
         sim_df, sim_names, det_map, panel_fluors, aliases, types, allowed_types,
-        canonical,
+        canonical, metric,
     )
     panel = context["panel"]
     base = context["base"]
@@ -1184,9 +1316,13 @@ def suggest_additions(
         )
 
     found: List[Tuple[float, Tuple[str, ...]]] = []
-    builder = _SetComplexity(context["M"], range(len(panel)), n)
+    builder = _SetComplexity(context["M"], range(len(panel)), n, metric)
     pool_rows = [context["label_pos"][name] for name in pool]
-    single_scale = (len(panel) + 1) / builder.final_size
+    scorer = get_metric(metric)
+
+    def single_bound(i: int) -> float:
+        """Bound for any set that holds the panel and candidate i."""
+        return scorer.lower_bound(single_complexity[i], len(panel) + 1, builder.final_size)
 
     def limit() -> float:
         return found[-1][0] if len(found) >= top_n else INF
@@ -1196,13 +1332,13 @@ def suggest_additions(
         needed = n - depth
         for i in range(start, len(pool) - needed + 1):
             current = limit()
-            if _worse_than(single_complexity[i] * single_scale, current):
+            if _worse_than(single_bound(i), current):
                 break  # sorted: no later candidate can do better either
             top_similarity = builder.push(depth, pool_rows[i])
-            if current != INF and _PAIR_SAFE > top_similarity > _pair_limit(current, builder.final_size):
+            if current != INF and _PAIR_SAFE > top_similarity > builder.pair_limit(current):
                 continue  # one pair is already too similar
             c = builder.complexity(depth)
-            if np.isfinite(c) and not _worse_than(builder.lower_bound(depth), current):
+            if np.isfinite(c) and not _worse_than(builder.lower_bound(depth, c), current):
                 chosen.append(i)
                 if needed == 1:
                     found.append((c, tuple(pool[j] for j in chosen)))
@@ -1223,6 +1359,7 @@ def suggest_additions(
             "values": [[round(float(v), 4) for v in row] for row in matrix],
         })
     return {
+        "metric": metric,
         "base_complexity": base_complexity,
         "candidates": len(pool),
         "combinations": math.comb(len(pool), n),
@@ -1244,10 +1381,13 @@ def find_best_panels(
     alias_path: Optional[str] = None,
     max_assigned: Optional[int] = None,
     require_mapped: bool = False,
+    metric: str = DEFAULT_METRIC,
 ) -> dict:
     """
     Find the exact global top_n panels among all maximum-size feasible panels.
     With `max_assigned`, "maximum-size" means at most that many antibodies.
+    Panels are ranked by `metric`, a key of METRICS (lower is better); each
+    ranked panel's `matrix_complexity` is its score under that metric.
 
     `backbone` is a fixed antibody -> fluorophore mapping that is always part
     of every panel and takes priority over conflicting input antibodies or
@@ -1282,7 +1422,7 @@ def find_best_panels(
 
     data = prepare_search(
         antibodies, sim_df, sim_names, det_map, top_n, backbone, aliases,
-        max_assigned, require_mapped=require_mapped,
+        max_assigned, require_mapped=require_mapped, metric=metric,
     )
     if data is None:
         original_order = list(antibodies)
@@ -1312,6 +1452,7 @@ def find_best_panels(
     results.sort(key=lambda item: (item[0], item[1]))
     panels = [item[2] for item in results[:top_n]]
     return {
+        "metric": metric,
         "max_assigned": data["max_count"],
         "total_antibodies": len(data["original_order"]),
         "num_combinations": evaluated,
@@ -1369,7 +1510,7 @@ if __name__ == "__main__":
 
     for rank, panel in enumerate(result["ranked_panels"], 1):
         print(
-            f"\nRank {rank} - A-optimality: "
+            f"\nRank {rank} - {get_metric(result['metric']).label}: "
             f"{panel['matrix_complexity']:.4f}"
         )
         for antibody, fluor in panel["assignments"].items():
