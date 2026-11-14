@@ -47,7 +47,10 @@
     }
     .tagline { margin: .25rem 0 0; color: #555; }
     .config { margin: .5rem 0; color: #555; }
-    .input-label { grid-area: inlabel; }
+    .input-head { grid-area: inlabel; display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem .75rem; margin-top: 1rem; }
+    .input-head label { margin-top: 0; }
+    #load-example { padding: .1rem .5rem; font-size: .85rem; line-height: 1.2; }
+    .example-msg { font-size: .85rem; color: #b00020; }
     .backbone-label { grid-area: backlabel; }
     .controls {
       display: flex;
@@ -252,7 +255,11 @@
   <p class="config">Based on configuration: Cytek Aurora 5L 16UV-16V-14B-10YG-8R</p>
   <div class="layout">
     <div class="inputs">
-      <label for="input" class="input-label">Antibody-Fluorophore pairs</label>
+      <div class="input-head">
+        <label for="input" class="input-label">Antibody-Fluorophore pairs</label>
+        <button id="load-example" type="button" title="Fill both boxes with an example 12-marker immunophenotyping panel: several fluorophore options per antibody (some written as aliases) and a viability dye to penalize overlap with.">Load example panel</button>
+        <span id="example-msg" class="example-msg" role="status"></span>
+      </div>
       <div id="input-wrap" class="hl-wrap"><div class="hl-back" aria-hidden="true"></div><textarea id="input" rows="15" placeholder="Antibody&#9;Fluorophore&#10;CD3&#9;BV421&#10;CD3&#9;FITC"></textarea></div>
       <label for="backbone" class="backbone-label">Penalize overlap with (Optional):</label>
       <div id="backbone-wrap" class="hl-wrap"><div class="hl-back" aria-hidden="true"></div><textarea id="backbone" rows="15" placeholder="Add existing fluorophores, fluorescent proteins, cell stains, or fluorophores that match your sample's autofluorescence to avoid spectral overlap. E.g.:&#10;&#10;CD45, PE&#10;DAPI&#10;FVS700&#10;BV510"></textarea></div>
@@ -892,6 +899,55 @@ After Compute, the same metric is used to rank suggested additions.</span></span
       new MutationObserver(loadSuggestions).observe(sData, { childList: true });
       new MutationObserver(load).observe(data, { childList: true });
       load();
+    })();
+  </script>
+
+  <script>
+    // "Load example panel": fills both text boxes from constants/Example_*.csv. This is
+    // plain JavaScript, so it works while the Python workers are still loading; main.py
+    // checks the text when it is ready (start) and on every input event.
+    (function () {
+      const button = document.getElementById('load-example');
+      const message = document.getElementById('example-msg');
+      const panelBox = document.getElementById('input');
+      const backboneBox = document.getElementById('backbone');
+      const maxFit = document.getElementById('maxfit');
+
+      async function fetchText(url) {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(url + ' ' + response.status);
+        return (await response.text()).replace(/\r\n?/g, '\n').trim();
+      }
+
+      function fill(box, text) {
+        box.value = text;
+        box.scrollTop = 0;
+        // As if typed: redraws the row colours, updates "of N antibodies", greys the
+        // summary and (in main.py) schedules the live check.
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+
+      button.addEventListener('click', async function () {
+        message.textContent = '';
+        button.disabled = true;
+        try {
+          const texts = await Promise.all([
+            fetchText('./constants/Example_Panel.csv'),
+            fetchText('./constants/Example_Backbone.csv')
+          ]);
+          const typed = panelBox.value.trim() || backboneBox.value.trim();
+          const same = panelBox.value.trim() === texts[0] && backboneBox.value.trim() === texts[1];
+          if (typed && !same && !window.confirm('Replace what is in both text boxes with the example panel?')) return;
+          maxFit.value = ''; // a "fit at most" limit from earlier input does not carry over
+          maxFit.dispatchEvent(new Event('input', { bubbles: true }));
+          fill(panelBox, texts[0]);
+          fill(backboneBox, texts[1]);
+        } catch (error) {
+          message.textContent = 'Could not load the example (' + error.message + ').';
+        } finally {
+          button.disabled = false;
+        }
+      });
     })();
   </script>
 
