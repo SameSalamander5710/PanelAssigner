@@ -199,6 +199,10 @@
     .matrix-table .fixed-top { border-top: 2px solid #7b2cbf; }
     .matrix-table .edge-left { border-left: 2px solid #2d6a4f; }
     .matrix-table .edge-top { border-top: 2px solid #2d6a4f; }
+    #output .results-table thead th:nth-child(n+3),
+    #output .results-table tbody td:nth-child(n+3),
+    #output .results-table tfoot td { cursor: pointer; }
+    .legend .hint { color: #555; }
     .legend .swatch.fixed { width: 0; border: none; border-left: 2px solid #7b2cbf; }
     .legend .swatch.base { background: #d9d9d9; }
     .legend .swatch.new { background: #b7e4c7; }
@@ -251,6 +255,7 @@
             <span class="item"><span class="swatch substituted"></span>Substituted</span>
             <span class="item"><span class="swatch unmapped"></span>Unmapped</span>
             <span class="item"><span class="swatch unassigned"></span>Unassigned</span>
+            <span class="item hint">Click a panel column to show its similarity matrix</span>
           </div>
           <button id="copy" type="button" disabled>Copy</button>
         </div>
@@ -537,6 +542,9 @@
       const input = document.getElementById('matrix-panel');
       const count = document.getElementById('matrix-count');
       const ci = document.getElementById('matrix-ci');
+      const results = document.getElementById('output');
+      const selectedStyle = document.createElement('style');
+      document.head.appendChild(selectedStyle);
       const fixedKey = document.getElementById('matrix-fixed-key');
       const sFixedKey = document.getElementById('suggest-fixed-key');
       const scroll = document.getElementById('matrix-scroll');
@@ -686,10 +694,22 @@
         suggestPool.textContent = candidates === undefined ? '?' : String(candidates);
       }
 
+      // Mark the selected panel's column in the results table. This is a style
+      // sheet, not a class on the cells, so the table that "Copy" takes is unchanged.
+      function markSelected(n) {
+        selectedStyle.textContent = n >= 1 ? [
+          '#output .results-table thead th:nth-child(' + (n + 2) + ') { background: #2d6a4f; color: #fff; }',
+          '#output .results-table tbody td:nth-child(' + (n + 2) + '), ' +
+            '#output .results-table tfoot td:nth-child(' + (n + 1) + ') ' +
+            '{ box-shadow: inset 2px 0 0 #2d6a4f, inset -2px 0 0 #2d6a4f; }'
+        ].join('\n') : '';
+      }
+
       function render(n) {
         const panel = panels[n - 1];
         scroll.textContent = '';
         warning.hidden = true;
+        markSelected(panel ? n : 0);
         if (!panel) return;
         showWarning(panel);
         ci.textContent = 'Matrix CI: ' + (panel.ci === null ? 'inf' : panel.ci.toFixed(4));
@@ -783,6 +803,21 @@
         input.value = 1;
         render(1);
       }
+
+      // Clicking a panel in the results table selects it, like the panel box does.
+      results.addEventListener('click', function (event) {
+        if (!panels.length) return;
+        const cell = event.target.closest && event.target.closest('.results-table th, .results-table td');
+        if (!cell || !results.contains(cell)) return;
+        const selection = window.getSelection();
+        if (selection && selection.toString()) return; // text is being selected to copy
+        let column = 0; // the cell's column, counting colspans: #, Antibody, Panel 1, ...
+        for (let c = cell.previousElementSibling; c; c = c.previousElementSibling) column += c.colSpan;
+        const n = column - 1;
+        if (cell.colSpan !== 1 || n < 1 || n > panels.length) return;
+        input.value = n;
+        render(n);
+      });
 
       input.addEventListener('input', function () {
         const n = parseInt(input.value, 10);
