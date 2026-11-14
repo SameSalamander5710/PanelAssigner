@@ -552,16 +552,19 @@ class _Metric(NamedTuple):
 #   complement) and every other diagonal entry of U^-1 is >= 1
 #   det(U) <= det(T), because every Schur complement is <= 1
 # A pair with similarity s is the 2x2 subset with eigenvalues 1 +- |s|.
+#
+# These run once per search node, so they avoid np.mean / np.sqrt / np.exp
+# (several times slower than sum / math.* on a handful of values).
 def _ci_score(w: np.ndarray) -> float:
-    return float(np.sqrt(w[-1] / w[0]))
+    return math.sqrt(w[-1] / w[0])
 
 
 def _a_score(w: np.ndarray) -> float:
-    return float(np.mean(1.0 / w))
+    return float((1.0 / w).sum() / w.size)
 
 
 def _d_score(w: np.ndarray) -> float:
-    return float(np.exp(-np.mean(np.log(w))))
+    return math.exp(-float(np.log(w).sum()) / w.size)
 
 
 def _e_score(w: np.ndarray) -> float:
@@ -640,8 +643,11 @@ def get_metric(name: str) -> _Metric:
 
 def _score_matrix(S: np.ndarray, metric: _Metric) -> float:
     """Score of a similarity matrix: inf if it is not safely positive definite."""
+    # S is finite here (callers check), so its eigenvalues are too; ascending
+    # order means the first and last are the extremes. Written so that a NaN
+    # in either also gives inf.
     eigenvalues = np.linalg.eigvalsh(S)
-    if not np.isfinite(eigenvalues).all() or eigenvalues[0] <= _EIGENVALUE_TOL:
+    if not eigenvalues[0] > _EIGENVALUE_TOL or not eigenvalues[-1] < INF:
         return INF
     return metric.score(eigenvalues)
 
