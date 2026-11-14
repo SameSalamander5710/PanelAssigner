@@ -92,6 +92,13 @@ A fluorophore you put in your own panel is always used, whatever its Type.
   in transparent ink so that rows can be coloured, so font, line height,
   padding and wrapping of `.hl-back` must stay identical to those of the
   `textarea` (see the CSS comment).
+  The check runs in `refresh_live` (`main.py`) as a single loop with at most
+  one call to its worker at a time: editing while a call is running does not
+  start another one (an overlapping call to a worker was never answered, which
+  left the summary greyed out), the loop checks again with the new text when
+  the call returns, and Compute waits for a running check before it uses the
+  workers. A check that takes longer than `LIVE_GIVE_UP` seconds is abandoned,
+  and an error from the worker is shown in the summary.
 - "Load example panel" fills both text boxes from `constants/Example_Panel.csv`
   and `constants/Example_Backbone.csv` (12 human immunophenotyping markers
   with 2-3 fluorophore options each, and an `FVS 700` viability dye to avoid).

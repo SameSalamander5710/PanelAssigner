@@ -15,8 +15,11 @@ suggest_data = document.getElementById("suggest-data")  # ... and the suggestion
 mapped_info = document.getElementById("requiremapped-info")  # hover notes for the matrix option
 mapped_tip = document.getElementById("requiremapped-tip")
 live_data = document.getElementById("live-data")  # ... and the live summary of the inputs from this
-live_pending = False  # input changed since the last live check
-live_running = False  # a live check is between the debounce and the worker reply
+LIVE_DEBOUNCE = 0.3  # seconds without typing before the inputs are checked
+LIVE_GIVE_UP = 15  # seconds; a check that takes longer than this is abandoned
+# wanted: counts edits. running: a check loop is active. gen: which loop is current.
+# since: when the loop last made progress.
+live = {"wanted": 0, "running": False, "gen": 0, "since": 0}
 
 
 def set_mapped_info(notes, has_unmapped=False):
@@ -32,36 +35,55 @@ def set_mapped_info(notes, has_unmapped=False):
 async def refresh_live():
     """Check the inputs on a worker once typing pauses; index.html shows the answer.
 
-    Only one check runs at a time: overlapping calls to the same worker get
-    stuck, so an edit made while a check is in flight just marks the result
-    stale and the loop runs again when the worker is free.
+    At most one check loop runs, and it has at most one call out to the worker. Editing
+    while a call is running must not start a second call: the worker answers one call
+    at a time, and an overlapping call was never answered, which left the summary
+    greyed out for good. Instead the loop notices the newer text when the call returns,
+    and checks again (after the usual pause).
     """
-    global live_pending, live_running
-    live_pending = True
-    if live_running or not pool or run_btn.disabled:  # not ready, or a compute is running
-        return
-    live_running = True
+    live["wanted"] += 1
+    if live["running"]:
+        if time.time() - live["since"] < LIVE_GIVE_UP:
+            return  # the running loop will pick up this edit
+        # It has made no progress for a long time: abandon it and start afresh.
+    live["gen"] += 1
+    mine = live["gen"]
+    live["running"] = True
     try:
-        while live_pending and pool and not run_btn.disabled:
-            live_pending = False
-            await asyncio.sleep(0.3)  # newer typing sets live_pending again
-            if live_pending:
-                continue  # still typing: wait for another pause
-            require_mapped = "1" if document.getElementById("requiremapped").checked else ""
+        while live["gen"] == mine:
+            seen = live["wanted"]
+            live["since"] = time.time()
+            await asyncio.sleep(LIVE_DEBOUNCE)
+            if live["wanted"] != seen:
+                continue  # typing again; wait for the next pause
+            if not pool or run_btn.disabled:  # not ready, or a compute is running
+                break  # start() and compute() ask again when they are done
+            live["since"] = time.time()
             raw = await pool[-1].summarize(  # the last worker: w0 holds the panels for Suggest
                 document.getElementById("input").value,
                 document.getElementById("backbone").value,
-                require_mapped,
+                "1" if document.getElementById("requiremapped").checked else "",
             )
-            if not live_pending:
+            if live["gen"] != mine:
+                break  # abandoned while waiting
+            if live["wanted"] == seen:  # nothing was typed meanwhile
                 live_data.textContent = raw
+                break
+            # Edited during the call: go round again, with the new text.
+    except Exception as exc:
+        if live["gen"] == mine:  # shown under the inputs instead of staying greyed out
+            live_data.textContent = json.dumps(
+                {"ok": False, "error": "Could not check the input: " + str(exc)})
     finally:
-        live_running = False
+        if live["gen"] == mine:
+            live["running"] = False
 
 
-async def wait_for_live():
-    """Let an in-flight live check finish before a compute uses the same worker."""
-    while live_running:
+async def live_check_idle():
+    """Wait for a running live check to finish its call to the worker, so that
+    nothing else is sent to that worker at the same time."""
+    give_up = time.time() + LIVE_GIVE_UP
+    while live["running"] and time.time() < give_up:
         await asyncio.sleep(0.05)
 
 
@@ -116,7 +138,8 @@ async def require_mapped_changed(event):
 
 @when("click", "#run")
 async def compute(event):
-    run_btn.disabled = True
+    run_btn.disabled = True  # also ends a live check that is waiting for typing to pause
+    await live_check_idle()  # one that is already with a worker finishes first
     out = document.getElementById("output")
     out.innerHTML = ""
     subs.innerHTML = ""
@@ -133,7 +156,6 @@ async def compute(event):
     max_fit = document.getElementById("maxfit").value  # "" = no limit
     require_mapped = "1" if document.getElementById("requiremapped").checked else ""
     metric = document.getElementById("metric").value  # key of Panel_optimized.METRICS
-    await wait_for_live()  # the live check shares a worker with Compute
     await asyncio.gather(*[drive(w, text, backbone, top_n, max_fit, require_mapped, metric, state) for w in pool])
 
     if state["error"]:
