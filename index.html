@@ -235,6 +235,22 @@
       <button id="run" disabled>Compute</button>
       <div class="topn-line">Show top <input id="topn" type="number" value="10" min="1"> panels.</div>
       <div class="topn-line" title="Largest panel to attempt. Lower it to leave out antibodies whose fluorophores clash.">Fit at most <input id="maxfit" type="number" min="1"> of <span id="maxfit-total">0</span> antibodies.</div>
+      <div class="topn-line">Rank by <select id="metric" title="Score used to rank panels">
+          <option value="condition_index">Condition index</option>
+          <option value="a_optimality" selected>A-optimality (average)</option>
+          <option value="d_optimality">D-optimality (volume)</option>
+          <option value="e_optimality">E-optimality (worst case)</option>
+        </select><span id="metric-info" class="info-icon" role="img" aria-label="More information" tabindex="0">i<span class="info-tip" role="tooltip">Score used to rank panels. All are computed from the similarity matrix of the panel; lower is better and 1 means perfectly distinct spectra.
+
+Condition index: square root of the largest over the smallest eigenvalue.
+
+A-optimality: average variance inflation (mean of 1/eigenvalue). Every overlapping fluorophore counts.
+
+D-optimality: total information (determinant based, geometric mean of 1/eigenvalue). Rewards the overall spread of the spectra.
+
+E-optimality: worst-case inflation (1/smallest eigenvalue). Only the most overlapping combination counts.
+
+After Compute, the same metric is used to rank suggested additions.</span></span></div>
       <div class="topn-line mapped-line"><label><input id="requiremapped" type="checkbox"> Only use fluorophores that are in the matrix</label><span id="requiremapped-info" class="info-icon" role="img" aria-label="More information" tabindex="0" data-info="Fluorophores that are not in the similarity matrix and have no substitute are otherwise treated as overlapping with nothing, which makes panels containing them look better than they are. Antibodies left without any option stay unassigned.">!<span id="requiremapped-tip" class="info-tip" role="tooltip">Fluorophores that are not in the similarity matrix and have no substitute are otherwise treated as overlapping with nothing, which makes panels containing them look better than they are. Antibodies left without any option stay unassigned.</span></span></div>
       <p id="status">Loading 4 Python workers (first visit takes a while)...</p>
     </div>
@@ -548,6 +564,7 @@
       let panels = [];
       let totalAntibodies = null;
       let suggestion = null; // worker answer for the last "Suggest" click
+      let metricLabel = 'Score'; // name of the metric the shown panels were ranked by
 
       function shade(v) {
         const t = Math.max(0, Math.min(1, v));
@@ -670,7 +687,7 @@
         warning.hidden = true;
         if (!panel) return;
         showWarning(panel);
-        ci.textContent = 'A-optimality: ' + (panel.ci === null ? 'inf' : panel.ci.toFixed(4));
+        ci.textContent = metricLabel + ': ' + (panel.score === null ? 'inf' : panel.score.toFixed(4));
 
         suggestPanel.textContent = n;
         updateSuggestPool();
@@ -691,7 +708,7 @@
         });
         const groups = base.fluors.map(function () { return 'base'; })
           .concat(added.map(function () { return 'new'; }));
-        sCi.textContent = 'A-optimality: ' + item.ci.toFixed(4) + ' (panel ' + suggestion.panel + ': ' + suggestion.base_ci.toFixed(4) + ')';
+        sCi.textContent = (suggestion.metric_label || metricLabel) + ': ' + item.score.toFixed(4) + ' (panel ' + suggestion.panel + ': ' + suggestion.base_score.toFixed(4) + ')';
         sScroll.appendChild(buildTable(base.fluors.concat(added), item.values, groups));
       }
 
@@ -715,7 +732,7 @@
         const table = document.createElement('table');
         table.className = 'results-table suggest-table';
         const head = table.createTHead().insertRow();
-        ['#', 'Added fluorophores', 'A-optimality', 'Change'].forEach(function (text, i) {
+        ['#', 'Added fluorophores', suggestion.metric_label || metricLabel, 'Change'].forEach(function (text, i) {
           const th = document.createElement('th');
           th.textContent = text;
           if (i !== 1) th.className = 'num';
@@ -724,8 +741,10 @@
         const body = table.createTBody();
         suggestion.suggestions.forEach(function (item, i) {
           const row = body.insertRow();
-          const cells = [String(i + 1), item.fluors.join(', '), item.ci.toFixed(4),
-                         '+' + (item.ci - suggestion.base_ci).toFixed(4)];
+          // A- and D-optimality are averages, so adding a fluorophore can lower them.
+          const change = item.score - suggestion.base_score;
+          const cells = [String(i + 1), item.fluors.join(', '), item.score.toFixed(4),
+                         (change < 0 ? '\u2212' : '+') + Math.abs(change).toFixed(4)];
           cells.forEach(function (text, k) {
             const td = row.insertCell();
             td.textContent = text;
@@ -749,6 +768,7 @@
             const parsed = JSON.parse(text);
             panels = parsed.panels || [];
             totalAntibodies = parsed.total === undefined ? null : parsed.total;
+            metricLabel = parsed.metric_label || 'Score';
           } catch (error) { panels = []; }
         }
         sData.textContent = '';
