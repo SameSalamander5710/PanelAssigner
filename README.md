@@ -10,7 +10,7 @@ The tool is hosted online at https://samesalamander5710.github.io/PanelAssigner/
 
 - Finds the maximum number of antibodies that can be assigned distinct fluorophores
 - Evaluates all feasible fluorophore combinations using exact search with pruning
-- Ranks panels by spectral overlap (A-optimality of the similarity matrix)
+- Ranks panels by spectral overlap, using a metric of your choice: A-, D- or E-optimality, or the condition index of the similarity matrix (dropdown in the WebUI, `metric=` in Python)
 - Automatic fluorophore name matching against a reference similarity matrix
 - Detector-based substitution for fluorophores not in the reference matrix
 - Similarity matrix plot of any result panel (WebUI only), below the results
@@ -32,23 +32,29 @@ CSV or pasted text with two columns:
 Each result includes:
 - **Assignments**: antibody-to-fluorophore mapping
 - **Unassigned antibodies**: those that could not be matched
-- **A-optimality**: lower values indicate less spectral overlap
+- **Score** (A-optimality, D-optimality, E-optimality or condition index, as chosen): lower values indicate less spectral overlap
 - **Substitutions**: fluorophores replaced by detector-matched alternatives, if not found in the current database
 - **Unmapped**: fluorophores not found in the reference matrix
 - **Similarity matrix**: similarity matrix of result panels
 
 ## Complexity calculations
 
-The A-optimality score (implemented in `_complexity_for_set`) is the mean variance inflation factor of the panel's similarity matrix.
+Panels are ranked by one of four scores of the panel's similarity matrix (`METRICS` in `Panel_optimized.py`; `metric=` argument of `find_best_panels` and `suggest_additions`; "Rank by" dropdown in the WebUI). The default is `DEFAULT_METRIC` (A-optimality).
 
 For a panel of $n$ fluorophores, build the symmetric matrix $S$ ($n \times n$) where $S_{ii}=1$, $S_{ij}$ is the spectral similarity between fluorophores $i$ and $j$ from `constants/Similarity_Index.csv`, and cells involving an unmapped fluorophore are $0$. Taking the eigenvalues $\lambda_i$ of $S$:
 
-$$
-\boxed{\text{Score}_{A}(S)=\frac{1}{n}\sum_{i=1}^{n}\frac{1}{\lambda_i}}
-$$
+| Metric (`metric=`) | Score | Meaning |
+| --- | --- | --- |
+| Condition index (`condition_index`) | $\sqrt{\lambda_{\max}/\lambda_{\min}}$ | Numerical stability of the matrix; ignores everything but the two extreme eigenvalues |
+| A-optimality (`a_optimality`) | $\frac{1}{n}\sum_i \frac{1}{\lambda_i}$ | Average variance inflation (mean VIF): every overlapping fluorophore counts |
+| D-optimality (`d_optimality`) | $\det(S)^{-1/n}=\left(\prod_i \frac{1}{\lambda_i}\right)^{1/n}$ | Total information: the volume spanned by the spectra (geometric mean of $1/\lambda_i$) |
+| E-optimality (`e_optimality`) | $1/\lambda_{\min}$ | Worst-direction inflation: only the most overlapping combination counts |
 
-Lower values are better: a perfectly orthogonal panel of any size scores $1.0$, and the score grows as overlaps make the matrix closer to singular. If any eigenvalue is $\le 0$ (or below a numerical tolerance of $10^{-12}$) or the matrix contains non-finite values, the score is reported as infinite. Panels with fewer than two fluorophores score $1.0$.
+Lower values are better for all four, and a perfectly orthogonal panel of any size scores $1.0$. If the smallest eigenvalue is $\le 10^{-12}$ or the matrix contains non-finite values, the score is reported as infinite. Panels with fewer than two fluorophores score $1.0$. For any panel, E $\ge$ A $\ge$ D $\ge 1$ (maximum, arithmetic mean and geometric mean of the $1/\lambda_i$).
 
+The A-, D- and E-optimality criteria follow Rajwa & Roederer, *Lost in Translation: Harmonizing Terminology and Defining Mathematical Tools for Panel Optimization*, Cytometry A 107(12), 2025 ([doi:10.1002/cyto.a.24972](https://doi.org/10.1002/cyto.a.24972)). There, the cosine-similarity matrix of $\ell_2$-normalized spectra acts as a Fisher-information-like matrix, its inverse bounds the unmixing variances (Cramér-Rao), A-optimality is the trace of that inverse, D-optimality its determinant, and E-optimality its largest eigenvalue. Two differences here: the scores are divided by or rooted to $n$ so that panels of different sizes (backbone included) can be compared, which does not change the ranking among panels of the same size, and only the similarity index is used, not a full mixing matrix or a noise model. D-optimality is reported as $\Delta^{-1}$ of the paper's scaled measure $\Delta=\det(S)^{1/n}$ so that lower is better, like the others.
+
+The search stays exact for every metric: each score has a proven lower bound for the final panel that can be computed from a partial set (see `_Metric` in `Panel_optimized.py`), so branches that cannot reach the top results are skipped.
 
 ## Installation
 
