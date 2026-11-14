@@ -10,6 +10,7 @@ The tool is hosted online at https://samesalamander5710.github.io/PanelAssigner/
 
 - Evaluates all feasible fluorophore combinations using exact search with pruning
 - Ranks panels by spectral overlap, using a metric of your choice: A-, D- or E-optimality, or the condition index of the similarity matrix (dropdown in the WebUI, `metric=` in Python)
+- "Load example panel" button (WebUI) that fills both text boxes with a 12-marker immunophenotyping example, so you can try the tool straight away
 - Add fluorophores to penalize overlap with (for when you want to add onto an existing panel, avoid autofluorescence, or stain labelled/tagged cells)
 - Detector-based substitution for fluorophores not in the reference matrix
 - Similarity matrix plot of any result panel (WebUI only), below the results
@@ -24,6 +25,8 @@ CSV or text pasted from Excel, with two columns:
 | CD3      | BV421       |
 | CD3      | FITC        |
 | CD4      | APC         |
+
+The WebUI's "Load example panel" button uses `constants/Example_Panel.csv` and `constants/Example_Backbone.csv` in this format; they are also a template for your own input.
 
 ## Output
 

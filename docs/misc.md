@@ -86,3 +86,15 @@ A fluorophore you put in your own panel is always used, whatever its Type.
   in transparent ink so that rows can be coloured, so font, line height,
   padding and wrapping of `.hl-back` must stay identical to those of the
   `textarea` (see the CSS comment).
+- "Load example panel" fills both text boxes from `constants/Example_Panel.csv`
+  and `constants/Example_Backbone.csv` (12 human immunophenotyping markers
+  with 2-3 fluorophore options each, and an `FVS 700` viability dye to avoid).
+  It is plain JavaScript in `index.html`, so it works while the Python workers
+  are still loading; the live summary appears once they are ready. Several
+  names are written as aliases on purpose (`BUV 395`, `Alexa 700` and `AF 700`
+  are the same dye, `PB`, `R-PE`, ...). The files are fetched from the site
+  itself, so the button needs the page to be served over http(s), not opened
+  from disk. If you edit them, `tests/test_example_panel.py` checks that they
+  still read cleanly (nothing substituted or unmapped) and give a full panel.
+  The "of N antibodies" count includes fixed rows such as the viability dye,
+  so it is one more than the live summary's antibody count.
