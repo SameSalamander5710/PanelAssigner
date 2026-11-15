@@ -103,13 +103,35 @@ A fluorophore you put in your own panel is always used, whatever its Type.
   in transparent ink so that rows can be coloured, so font, line height,
   padding and wrapping of `.hl-back` must stay identical to those of the
   `textarea` (see the CSS comment).
-  The check runs in `refresh_live` (`main.py`) as a single loop with at most
-  one call to its worker at a time: editing while a call is running does not
-  start another one (an overlapping call to a worker was never answered, which
-  left the summary greyed out), the loop checks again with the new text when
-  the call returns, and Compute waits for a running check before it uses the
-  workers. A check that takes longer than `LIVE_GIVE_UP` seconds is abandoned,
-  and an error from the worker is shown in the summary.
+  The check runs in `refresh_live` (`main.py`) as a single loop (`live_loop`,
+  a task) with at most one call to its worker at a time: editing while a call
+  is running does not start another one, the loop checks again with the new
+  text when the call returns. A check that takes longer than `LIVE_GIVE_UP`
+  seconds is abandoned, and an error from the worker is shown in the summary.
+  Compute never waits for a check. It starts at once on the workers that
+  have no call out (`busy`, kept by `call`), and a worker that is still
+  answering a check joins in as soon as it has answered, or is left out if
+  the others finish first or it never answers. The answer of a check that
+  was already with a worker when Compute was clicked is dropped, and the
+  summary is refreshed when Compute is done (`refresh_live(True)`). The
+  check uses the last free worker, never the first (it holds the panels
+  for Suggest).
+- **Nothing that JavaScript starts may suspend (`main.py`).** MicroPython in
+  the browser runs a coroutine that JavaScript starts (an `async` `@when`
+  handler, a top-level `await`) as a "top-level" coroutine, and all of those
+  share one wake-up slot (`TopLevelCoro` in MicroPython's
+  `ports/webassembly/asyncio/core.py`). When one is suspended in a sleep, a
+  worker call or `gather` and another starts and suspends, they overwrite each
+  other: one is never resumed (a live summary that never arrives, a Compute
+  that waits for 15 s), the scheduler throws into the shared slot
+  (`AttributeError: type object 'TopLevelCoro' has no attribute 'throw'`), or
+  the CPU spins (typing into the boxes froze the page). So event handlers are
+  plain functions that do their synchronous work and hand the rest to
+  `spawn()`, which makes a task with an identity of its own, and the module
+  ends with `spawn(start())` instead of `await start()`. CPython's asyncio
+  does not behave like this, so `tests/test_live_check.py` enforces the rule
+  directly (`entry_point_problems`: no `async` `@when` handler, no top-level
+  `await`) and calls handlers the way JavaScript does.
 - "Load example panel" fills both text boxes from `constants/Example_Panel.csv`
   and `constants/Example_Backbone.csv` (12 human immunophenotyping markers
   with 2-3 fluorophore options each, and an `FVS 700` viability dye to avoid).
