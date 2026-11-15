@@ -196,9 +196,8 @@
     .suggest-table tbody tr.selected td { background: var(--added); }
     .pick-row { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem 1rem; }
     @media (max-width: 700px) {
-      .stepbar { position: static; }
       .meta { text-align: left; }
-      .card { scroll-margin-top: 1rem; }
+      .card { scroll-margin-top: calc(var(--stepbar-h, 3rem) + .75rem); }
     }
   </style>
 </head>
@@ -1242,6 +1241,21 @@ After Compute, the same metric is used to rank suggested additions.</span></span
       if (window.ResizeObserver) new ResizeObserver(align).observe(masthead);
       window.addEventListener('resize', align);
       align();
+    })();
+  </script>
+
+  <script>
+    // The step bar stays sticky on every screen size. It can wrap to more rows on narrow
+    // screens, so expose its current height for the cards' scroll-margin-top.
+    (function () {
+      const stepbar = document.querySelector('.stepbar');
+      if (!stepbar) return;
+      function measure() {
+        document.documentElement.style.setProperty('--stepbar-h', stepbar.offsetHeight + 'px');
+      }
+      if (window.ResizeObserver) new ResizeObserver(measure).observe(stepbar);
+      window.addEventListener('resize', measure);
+      measure();
     })();
   </script>
 
