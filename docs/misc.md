@@ -76,6 +76,17 @@ A fluorophore you put in your own panel is always used, whatever its Type.
 
 ### Reading the page
 
+- The page follows the order of the work. A step bar (sticky on wide screens)
+  lists 1 Input, 2 Settings, 3 Results, 4 Inspect and 5 Extend, marks the one
+  on screen, and says what to do next; Inspect and Extend stay locked until
+  there are results. Input and Settings sit side by side on wide screens,
+  Results use the full width, and Inspect and Extend sit side by side on
+  screens of about 1360 px or more. New results are scrolled into view unless
+  they are already visible. The selected "Rank by" score is described under the
+  box, and the arrow buttons beside the panel and suggestion boxes step through
+  them. These guides are plain JavaScript in the last inline script before the
+  PyScript tags; `main.py` and the other scripts rely on the element ids, so
+  keep them when changing the layout.
 - Similarity matrices: a purple line separates the fluorophores you fixed
   (the optional input) from the ones the search chose, as a green line
   separates suggested additions. The purple line only appears when a panel

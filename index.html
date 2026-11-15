@@ -7,274 +7,269 @@
   <link rel="stylesheet" href="https://pyscript.net/releases/2026.7.3/core.css">
   <script type="module" src="https://pyscript.net/releases/2026.7.3/core.js"></script>
   <style>
-    :root { --col-width: 18.7rem; }
-    body { font-family: system-ui, sans-serif; max-width: calc(2 * var(--col-width) + 1rem); margin: 2rem auto; padding: 0 1rem; }
-    h1 { margin-bottom: .25rem; }
-    textarea, #output { width: 100%; box-sizing: border-box; font-family: ui-monospace, monospace; }
-    textarea { resize: none; }
-    /* Each text box has a copy of its text behind it, in transparent ink, so that rows can
-       be coloured. Font, line height, padding and wrapping must match the text box exactly. */
+    /* Layout: a sticky step bar, a setup band (1 Input + 2 Settings), full-width 3 Results,
+       then 4 Inspect and 5 Extend side by side on wide screens. Colours that carry meaning
+       (status of a fluorophore, selected panel, fixed vs searched) are tokens used by the
+       page and by the generated tables; the selected-panel green is also set in the matrix script. */
+    :root {
+      --canvas: #eef1f5; --surface: #fff; --sunken: #f6f8fa;
+      --ink: #18212d; --muted: #566174; --line: #d3d9e1; --line-strong: #8f9bab;
+      --brand: #16324f; --link: #0b4fa8; --focus: #1f6feb; --danger: #b00020;
+      --assigned: #d9f2d9; --substituted: #cfe8ff; --unmapped: #fff3bf; --unassigned: #ffd6d6;
+      --selected: #2d6a4f; --fixed: #7b2cbf; --added: #b7e4c7; --base: #d9d9d9;
+      --radius: 6px;
+      --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+      --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; background: var(--canvas); color: var(--ink); font: 15px/1.45 var(--sans); }
+    a { color: var(--link); }
+    :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    [hidden] { display: none !important; }
+    .wrap { max-width: 100rem; margin: 0 auto; padding: 0 1.25rem; }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+    /* Header */
+    .masthead { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: .5rem 2rem; padding-top: 1.25rem; padding-bottom: 1rem; }
+    h1 { margin: 0; font-size: 1.6rem; line-height: 1.15; font-weight: 650; letter-spacing: -.01em; }
+    .tagline { margin: .3rem 0 0; max-width: 46rem; color: var(--muted); }
+    .meta { margin: 0; color: var(--muted); font-size: .85rem; text-align: right; }
+    .meta span { display: block; }
+
+    /* Step bar */
+    .stepbar { position: sticky; top: 0; z-index: 20; background: var(--surface); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .stepbar .wrap { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0 1.5rem; }
+    .steps { display: flex; margin: 0; padding: 0; list-style: none; overflow-x: auto; }
+    .steps a { display: flex; align-items: center; gap: .45rem; padding: .7rem .9rem; color: var(--muted); font-weight: 600; text-decoration: none; white-space: nowrap; border-bottom: 3px solid transparent; }
+    .steps a:hover { color: var(--ink); }
+    .steps a[aria-current="step"] { color: var(--ink); border-bottom-color: var(--brand); }
+    .steps .num, .badge { display: inline-grid; place-items: center; width: 1.45rem; height: 1.45rem; border-radius: 50%; background: var(--brand); color: #fff; font-size: .8rem; font-weight: 700; flex: none; }
+    .steps a:not([aria-current="step"]) .num { background: var(--sunken); color: var(--muted); border: 1px solid var(--line-strong); }
+    body:not(.has-results) .steps a[data-needs-results] { pointer-events: none; opacity: .45; }
+    .next-hint { margin: 0; padding: .4rem 0; color: var(--ink); font-size: .9rem; }
+    .next-hint::before { content: "Next: "; font-weight: 650; }
+
+    /* Workbench and cards */
+    .workbench { display: grid; gap: 1.25rem; padding-top: 1.25rem; padding-bottom: 3rem; }
+    .setup { display: grid; gap: 1.25rem; grid-template-columns: minmax(0, 1fr); }
+    .after { display: grid; gap: 1.25rem; grid-template-columns: minmax(0, 1fr); }
+    @media (min-width: 1060px) { .setup { grid-template-columns: minmax(0, 1fr) 22rem; } }
+    @media (min-width: 1360px) { .after { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; } }
+    .card { min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); scroll-margin-top: 4.5rem; }
+    .card-head { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .75rem; padding: .65rem 1rem; border-bottom: 1px solid var(--line); }
+    .card-head h2 { margin: 0; font-size: 1.05rem; font-weight: 650; }
+    .card-head .spacer { margin-left: auto; }
+    .card-body { display: flex; flex-direction: column; gap: .75rem; padding: 1rem; min-width: 0; }
+    .help { margin: .15rem 0 0; color: var(--muted); font-size: .85rem; }
+
+    /* Buttons and fields */
+    button { font: inherit; padding: .35rem .85rem; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--surface); color: var(--ink); cursor: pointer; }
+    button:hover:not(:disabled) { background: var(--sunken); }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    button.small { padding: .15rem .6rem; font-size: .85rem; }
+    button.step-btn { padding: .15rem .55rem; line-height: 1.2; }
+    #run { width: 100%; padding: .7rem 1rem; border-color: var(--brand); background: var(--brand); color: #fff; font-size: 1.05rem; font-weight: 650; }
+    #run:hover:not(:disabled) { background: #0f2540; }
+    #suggest-run { border-color: var(--brand); background: var(--brand); color: #fff; font-weight: 600; }
+    #suggest-run:hover:not(:disabled) { background: #0f2540; }
+    input[type="number"], select { font: inherit; padding: .25rem .4rem; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--surface); color: var(--ink); }
+    input[type="number"] { width: 4.5rem; }
+    select { max-width: 100%; }
+    label { font-weight: 600; }
+    .field { position: relative; display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: .2rem .5rem; }
+    .field .help { grid-column: 1 / -1; margin: 0; }
+    .field.check label { grid-column: 1 / 3; display: flex; align-items: flex-start; gap: .5rem; font-weight: 600; }
+    .field.check input { margin-top: .25rem; }
+    .field .inline { display: inline-flex; align-items: center; gap: .4rem; }
+    #topn, #maxfit { width: 4rem; }
+    .settings-body { gap: 1rem; }
+    .run-row { display: flex; flex-direction: column; gap: .5rem; padding-top: .25rem; border-top: 1px solid var(--line); }
+    #status { margin: 0; font-size: .85rem; color: var(--muted); }
+
+    /* 1 Input: two text boxes with a copy of each text behind them, in transparent ink, so
+       that rows can be coloured. Font, line height, padding and wrapping must match exactly. */
+    #step-input { display: flex; flex-direction: column; }
+    .input-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem 1.25rem; padding: 1rem; flex: 1; }
+    @media (max-width: 700px) { .input-cols { grid-template-columns: minmax(0, 1fr); } }
+    .input-col { min-width: 0; display: flex; flex-direction: column; gap: .4rem; }
+    .input-col .help { margin: 0; min-height: 2.9em; }
+    .input-col .hl-wrap { flex: 1; display: flex; flex-direction: column; }
+    .input-col .hl-wrap textarea { flex: 1; }
+    textarea { width: 100%; resize: none; }
     .hl-wrap { position: relative; min-width: 0; }
-    #input-wrap { grid-area: inbox; }
-    #backbone-wrap { grid-area: backbone; }
     .hl-wrap textarea,
     .hl-back {
       box-sizing: border-box; width: 100%; margin: 0;
       font: 13px/18px ui-monospace, monospace; tab-size: 8;
-      padding: 4px 6px; border: 1px solid #767676;
+      padding: 4px 6px; border: 1px solid var(--line-strong);
       white-space: pre-wrap; overflow-wrap: break-word;
     }
-    .hl-wrap textarea { position: relative; display: block; background: transparent; }
-    .hl-back { position: absolute; inset: 0; border-color: transparent; background: #fff; color: transparent; overflow: hidden; pointer-events: none; }
+    .hl-wrap textarea { position: relative; display: block; background: transparent; color: var(--ink); border-radius: 4px; }
+    .hl-back { position: absolute; inset: 0; border-color: transparent; background: #fff; color: transparent; overflow: hidden; pointer-events: none; border-radius: 4px; }
     .hl-line { margin: 0 -6px; padding: 0 6px; }
-    .hl-line.substituted, .live-summary .chip.substituted { background: #cfe8ff; }
-    .hl-line.unmapped, .live-summary .chip.unmapped { background: #fff3bf; }
-    .live-summary { font-size: .85rem; min-height: 1.5rem; display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .4rem; }
+    .hl-line.substituted, .live-summary .chip.substituted { background: var(--substituted); }
+    .hl-line.unmapped, .live-summary .chip.unmapped { background: var(--unmapped); }
+    .input-foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .4rem 1.5rem; padding: .6rem 1rem; border-top: 1px solid var(--line); background: var(--sunken); border-radius: 0 0 var(--radius) var(--radius); }
+    .live-summary { font-size: .88rem; min-height: 1.5rem; display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .4rem; }
     .live-summary.stale { opacity: .55; }
-    .live-summary.error { color: #b00020; }
+    .live-summary.error { color: var(--danger); }
     .live-summary .chip { padding: 0 .4rem; border: 1px solid #999; border-radius: 3px; }
-    label { display: block; margin-top: 1rem; font-weight: 600; }
-    button { padding: .5rem 1.25rem; font-size: 1rem; }
-    #topn, #maxfit { width: 4rem; }
-    .layout { display: flex; flex-direction: column; gap: 1rem; }
-    .inputs {
-      display: grid;
-      grid-template-columns: var(--col-width) var(--col-width);
-      grid-template-areas:
-        "inlabel  backlabel"
-        "inbox    backbone";
-      gap: .625rem 1rem;
-    }
-    .tagline { margin: .25rem 0 0; color: #555; }
-    .config { margin: .5rem 0; color: #555; }
-    .input-head { grid-area: inlabel; display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem .75rem; margin-top: 1rem; }
-    .input-head label { margin-top: 0; }
-    #load-example { padding: .1rem .5rem; font-size: .85rem; line-height: 1.2; }
-    .example-msg { font-size: .85rem; color: #b00020; }
-    .backbone-label { grid-area: backlabel; }
-    .controls {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: .5rem .75rem;
-    }
-    .topn-line { white-space: nowrap; }
-    .mapped-line { flex-basis: 100%; }
-    .topn-line label { display: inline; margin-top: 0; }
-    .info-icon {
-      position: relative;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 1.1rem;
-      height: 1.1rem;
-      margin-left: .35rem;
-      border-radius: 50%;
-      border: 1px solid #9aa0a6;
-      background: #fff;
-      color: #000;
-      font-size: .75rem;
-      font-weight: 700;
-      line-height: 1;
-      cursor: help;
-      user-select: none;
-      vertical-align: middle;
-    }
-    .info-icon.has-unmapped {
-      border-color: #2563eb;
-      background: #2563eb;
-      color: #fff;
-    }
-    .info-tip {
-      display: none;
-      position: absolute;
-      top: calc(100% + .4rem);
-      left: calc(100% + .4rem);
-      z-index: 10;
-      width: max-content;
-      max-width: 30vw;
-      padding: .5rem .65rem;
-      border-radius: .25rem;
-      background: #333;
-      color: #fff;
-      font-size: .8rem;
-      font-weight: 400;
-      line-height: 1.35;
-      white-space: pre-line;
-      text-align: left;
-      overflow-wrap: anywhere;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
-    }
-    .info-icon:hover .info-tip,
-    .info-icon:focus .info-tip { display: block; }
-    #status { margin: 0; font-size: .85rem; }
-    .output-panel { display: flex; flex-direction: column; min-width: 0; gap: .625rem 1rem; }
-    .output-label { font-weight: 600; }
-    .section-heading { font-size: 1.15rem; }
-    .suggest-heading { margin-top: .375rem; }
-    .substitutions { font-size: .85rem; color: #333; }
+    .row-key { display: flex; flex-wrap: wrap; gap: .25rem 1rem; color: var(--muted); font-size: .8rem; }
+    .example-msg { font-size: .85rem; color: var(--danger); }
+
+    /* Info icons: the note opens under its row, spanning the row, so it never leaves the card */
+    .info-icon { display: inline-flex; align-items: center; justify-content: center; width: 1.2rem; height: 1.2rem; border-radius: 50%; border: 1px solid #9aa0a6; background: #fff; color: #000; font-size: .75rem; font-weight: 700; line-height: 1; cursor: help; user-select: none; }
+    .info-icon.has-unmapped { border-color: #2563eb; background: #2563eb; color: #fff; }
+    .info-tip { display: none; position: absolute; left: 0; right: 0; top: calc(100% + .3rem); z-index: 40; padding: .6rem .75rem; border-radius: 4px; background: #2b3441; color: #fff; font-size: .8rem; font-weight: 400; line-height: 1.4; white-space: pre-line; text-align: left; overflow-wrap: anywhere; box-shadow: 0 2px 8px rgba(0, 0, 0, .25); }
+    .info-icon:hover .info-tip, .info-icon:focus .info-tip { display: block; }
+
+    /* 3 Results */
+    .legend { display: flex; flex-wrap: wrap; gap: .25rem 1rem; font-size: .85rem; }
+    .legend .item { display: inline-flex; align-items: center; gap: .35rem; }
+    .legend .swatch { display: inline-block; width: 1rem; height: 1rem; border: 1px solid #999; }
+    .legend .hint { color: var(--muted); }
+    .legend .assigned, .results-table .assigned { background: var(--assigned); }
+    .legend .substituted, .results-table .substituted { background: var(--substituted); }
+    .legend .unmapped, .results-table .unmapped { background: var(--unmapped); }
+    .legend .unassigned, .results-table .unassigned { background: var(--unassigned); }
+    .legend .swatch.fixed { width: 0; border: none; border-left: 2px solid var(--fixed); }
+    .legend .swatch.base { background: var(--base); }
+    .legend .swatch.new { background: var(--added); }
+    .legend .swatch.scale { width: 4rem; background: linear-gradient(to right, #fff, rgb(240, 138, 75)); }
+    .click-hint { margin: 0; padding: .5rem 1rem 0; color: var(--muted); font-size: .85rem; }
+    .box { min-width: 0; border: 1px solid var(--line); background: #fff; border-radius: 4px; }
+    .results-card .box { margin: .5rem 1rem 1rem; }
+    #output { margin: 0; overflow-x: auto; background: #fff; font-family: ui-monospace, monospace; }
+    #output:empty { padding: 1.5rem 1rem; text-align: center; color: var(--muted); font-family: var(--sans); }
+    #output:empty::before { content: "Results appear here after you press Compute."; }
+    .box-foot { display: flex; align-items: center; gap: 1rem; padding: .5rem; border-top: 1px solid var(--line); }
+    .results-table { border-collapse: collapse; width: 100%; font-size: 13.3333px; }
+    .results-table th, .results-table td { box-sizing: border-box; border: 1px solid var(--line); padding: 2px 6px; text-align: left; white-space: nowrap; }
+    .results-table thead th { position: sticky; top: 0; background: #f2f2f2; z-index: 1; }
+    .results-table .num { text-align: right; }
+    .results-table .ci-row th, .results-table .ci-row td { background: #f2f2f2; font-weight: 600; }
+    #output .results-table thead th:nth-child(n+3), #output .results-table tbody td:nth-child(n+3), #output .results-table tfoot td { cursor: pointer; }
+    .substitutions { padding: 0 1rem 1rem; font-size: .85rem; color: #333; }
     .substitutions:empty { display: none; }
     .substitutions-heading { font-weight: 600; margin-bottom: .25rem; }
     .substitution-row { padding: .1rem 0; }
-    .results-box {
-      border: 1px solid #767676;
-      background: #fff;
-      min-width: 0;
-    }
-    #output {
-      margin: 0;
-      overflow-x: auto;
-      padding: 0;
-      background: #fff;
-    }
-    .output-footer {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 1rem;
-      padding: .5rem;
-      border-top: 1px solid #d0d0d0;
-    }
-    #copy {
-      flex: none;
-      padding: .3rem .75rem;
-      font-size: .85rem;
-    }
-    #copy:disabled { opacity: .5; cursor: not-allowed; }
-    .results-table {
-      border-collapse: collapse;
-      width: 100%;
-      font-size: 13.3333px;
-    }
-    .results-table th,
-    .results-table td {
-      box-sizing: border-box;
-      border: 1px solid #d0d0d0;
-      padding: 2px 6px;
-      text-align: left;
-      white-space: nowrap;
-    }
-    .results-table thead th {
-      position: sticky;
-      top: 0;
-      background: #f2f2f2;
-      z-index: 1;
-    }
-    .results-table .num { text-align: right; }
-    .results-table .ci-row th,
-    .results-table .ci-row td { background: #f2f2f2; font-weight: 600; }
-    .results-table .assigned,
-    .legend .assigned { background: #d9f2d9; }
-    .results-table .substituted,
-    .legend .substituted { background: #cfe8ff; }
-    .results-table .unmapped,
-    .legend .unmapped { background: #fff3bf; }
-    .results-table .unassigned,
-    .legend .unassigned { background: #ffd6d6; }
-    .legend {
-      display: flex;
-      flex-wrap: wrap;
-      gap: .35rem 1rem;
-      font-size: .85rem;
-    }
-    .legend .item { display: inline-flex; align-items: center; gap: .35rem; }
-    .legend .swatch {
-      display: inline-block;
-      width: 1rem;
-      height: 1rem;
-      border: 1px solid #999;
-    }
-    [hidden] { display: none !important; }
-    .matrix-section { display: flex; flex-direction: column; gap: .625rem; min-width: 0; }
-    .matrix-header { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem 1rem; }
-    #matrix-panel { width: 4rem; }
-    .matrix-ci { color: #555; font-size: .85rem; }
+
+    /* 4 Inspect and 5 Extend */
+    .selector { display: inline-flex; align-items: center; gap: .4rem; }
+    #matrix-panel, #suggest-pick { width: 4rem; }
+    .matrix-ci { color: var(--muted); font-size: .88rem; }
     .matrix-scroll { overflow-x: auto; background: #fff; }
     .matrix-table { border-collapse: collapse; font-size: 13.3333px; }
-    .matrix-table th,
-    .matrix-table td {
-      border: 1px solid #d0d0d0;
-      padding: 2px 4px;
-      text-align: center;
-      white-space: nowrap;
-    }
+    .matrix-table th, .matrix-table td { border: 1px solid var(--line); padding: 2px 4px; text-align: center; white-space: nowrap; }
     .matrix-table td { min-width: 2.6rem; font-variant-numeric: tabular-nums; }
     .matrix-table th { background: #f2f2f2; font-weight: 600; }
     .matrix-table .row-head { text-align: left; position: sticky; left: 0; z-index: 1; }
     .matrix-table .col-head span { writing-mode: vertical-rl; transform: rotate(180deg); }
-    .matrix-table th.substituted { background: #cfe8ff; }
-    .matrix-table th.unmapped { background: #fff3bf; }
+    .matrix-table th.substituted { background: var(--substituted); }
+    .matrix-table th.unmapped { background: var(--unmapped); }
     .matrix-table td.na { background: #eee; color: #777; }
     .matrix-table td.diag { font-weight: 600; }
-    .matrix-warning {
-      border: 1px solid #d9a400;
-      background: #fff8e1;
-      padding: .5rem .75rem;
-      font-size: .85rem;
-    }
-    .matrix-warning p { margin: 0; }
-    .matrix-warning ul { margin: .25rem 0 .5rem 1.25rem; padding: 0; }
     .matrix-table td.hot { outline: 2px solid #c0392b; outline-offset: -2px; }
     .matrix-table th.base { background: #d9d9d9; }
-    .matrix-table th.new { background: #b7e4c7; }
-    .matrix-table .fixed-left { border-left: 2px solid #7b2cbf; }
-    .matrix-table .fixed-top { border-top: 2px solid #7b2cbf; }
-    .matrix-table .edge-left { border-left: 2px solid #2d6a4f; }
-    .matrix-table .edge-top { border-top: 2px solid #2d6a4f; }
-    #output .results-table thead th:nth-child(n+3),
-    #output .results-table tbody td:nth-child(n+3),
-    #output .results-table tfoot td { cursor: pointer; }
-    .legend .hint { color: #555; }
-    .legend .swatch.fixed { width: 0; border: none; border-left: 2px solid #7b2cbf; }
-    .legend .swatch.base { background: #d9d9d9; }
-    .legend .swatch.new { background: #b7e4c7; }
-    .suggest-controls { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .5rem; }
-    .suggest-controls button { padding: .3rem .75rem; font-size: .9rem; }
-    #suggest-n, #suggest-pick { width: 4rem; }
-    .suggest-status { font-size: .85rem; color: #555; }
-    .suggest-section { display: flex; flex-direction: column; gap: .625rem; min-width: 0; }
+    .matrix-table th.new { background: var(--added); }
+    .matrix-table .fixed-left { border-left: 2px solid var(--fixed); }
+    .matrix-table .fixed-top { border-top: 2px solid var(--fixed); }
+    .matrix-table .edge-left { border-left: 2px solid var(--selected); }
+    .matrix-table .edge-top { border-top: 2px solid var(--selected); }
+    .matrix-warning { border: 1px solid #d9a400; border-left-width: 4px; border-radius: 4px; background: #fff8e1; padding: .5rem .75rem; font-size: .88rem; }
+    .matrix-warning p { margin: 0; }
+    .matrix-warning ul { margin: .25rem 0 .5rem 1.25rem; padding: 0; }
+    .suggest-controls { display: flex; flex-direction: column; align-items: flex-start; gap: .6rem; }
+    .suggest-sentence { line-height: 2; }
+    .suggest-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .75rem; }
+    #suggest-n { width: 4rem; }
+    .suggest-status { font-size: .85rem; color: var(--muted); }
+    .suggest-section { display: flex; flex-direction: column; gap: .75rem; min-width: 0; padding-top: .75rem; border-top: 1px solid var(--line); }
+    .suggest-title { font-weight: 650; }
     .suggest-rows { overflow-x: auto; }
     .suggest-table tbody tr { cursor: pointer; }
-    .suggest-table tbody tr.selected td { background: #b7e4c7; }
-    .legend .swatch.scale {
-      width: 4rem;
-      background: linear-gradient(to right, #fff, rgb(240, 138, 75));
-    }
-    @media (max-width: 660px) {
-      .inputs {
-        grid-template-columns: 1fr;
-        grid-template-areas: "inlabel" "inbox" "backlabel" "backbone";
-      }
+    .suggest-table tbody tr.selected td { background: var(--added); }
+    .pick-row { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem 1rem; }
+    @media (max-width: 700px) {
+      .stepbar { position: static; }
+      .meta { text-align: left; }
+      .card { scroll-margin-top: 1rem; }
     }
   </style>
 </head>
 <body>
-  <h1>PanelAssigner</h1>
-  <p class="tagline">Simple optimizer for flow cytometry panel design that assigns fluorophores to antibodies and ranks panel configurations by spectral complexity.</p>
-  <p class="tagline">For more details, see: <a href="https://github.com/SameSalamander5710/PanelAssigner" target="_blank" rel="noopener noreferrer">https://github.com/SameSalamander5710/PanelAssigner</a>.</p>
-  <p class="config">Based on configuration: Cytek Aurora 5L 16UV-16V-14B-10YG-8R</p>
-  <div class="layout">
-    <div class="inputs">
-      <div class="input-head">
-        <label for="input" class="input-label">Antibody-Fluorophore pairs</label>
-        <button id="load-example" type="button" title="Fill both boxes with an example 12-marker immunophenotyping panel: several fluorophore options per antibody (some written as aliases) and a viability dye to penalize overlap with.">Load example panel</button>
-        <span id="example-msg" class="example-msg" role="status"></span>
-      </div>
-      <div id="input-wrap" class="hl-wrap"><div class="hl-back" aria-hidden="true"></div><textarea id="input" rows="15" placeholder="Antibody&#9;Fluorophore&#10;CD3&#9;BV421&#10;CD3&#9;FITC"></textarea></div>
-      <label for="backbone" class="backbone-label">Penalize overlap with (Optional):</label>
-      <div id="backbone-wrap" class="hl-wrap"><div class="hl-back" aria-hidden="true"></div><textarea id="backbone" rows="15" placeholder="Add existing fluorophores, fluorescent proteins, cell stains, or fluorophores that match your sample's autofluorescence to avoid spectral overlap. E.g.:&#10;&#10;CD45, PE&#10;DAPI&#10;FVS700&#10;BV510"></textarea></div>
+  <header class="wrap masthead">
+    <div>
+      <h1>PanelAssigner</h1>
+      <p class="tagline">Simple optimizer for flow cytometry panel design that assigns fluorophores to antibodies and ranks panel configurations by spectral complexity.</p>
     </div>
-    <div id="live-summary" class="live-summary" aria-live="polite" title="Checked as you type, before computing. Blue: a fluorophore that stands in for one in the matrix by detector. Yellow: not in the matrix, so it is treated as overlapping with nothing."></div>
-    <div class="controls">
-      <button id="run" disabled>Compute</button>
-      <div class="topn-line">Show top <input id="topn" type="number" value="10" min="1"> panels.</div>
-      <div class="topn-line" title="Most of the antibodies in the left box to place in the panel (fixed fluorophores are always included). Lower it to leave out antibodies whose fluorophores clash.">Fit at most <input id="maxfit" type="number" min="1"> of <span id="maxfit-total">0</span> antibodies.</div>
-      <div class="topn-line">Rank by <select id="metric" title="Score used to rank panels">
-          <option value="condition_index">Condition index</option>
-          <option value="a_optimality" selected>A-optimality (average)</option>
-          <option value="d_optimality">D-optimality (volume)</option>
-          <option value="e_optimality">E-optimality (worst case)</option>
-        </select><span id="metric-info" class="info-icon" role="img" aria-label="More information" tabindex="0">i<span class="info-tip" role="tooltip">Score used to rank panels. All are computed from the similarity matrix of the panel; lower is better and 1 means perfectly distinct spectra.
+    <p class="meta">
+      <span>Based on configuration: Cytek Aurora 5L 16UV-16V-14B-10YG-8R</span>
+      <span>For more details, see: <a href="https://github.com/SameSalamander5710/PanelAssigner" target="_blank" rel="noopener noreferrer">https://github.com/SameSalamander5710/PanelAssigner</a>.</span>
+    </p>
+  </header>
+
+  <nav class="stepbar" aria-label="Workflow">
+    <div class="wrap">
+      <ol class="steps">
+        <li><a href="#step-input" data-step="step-input"><span class="num">1</span>Input</a></li>
+        <li><a href="#step-settings" data-step="step-settings"><span class="num">2</span>Settings</a></li>
+        <li><a href="#step-results" data-step="step-results"><span class="num">3</span>Results</a></li>
+        <li><a href="#step-inspect" data-step="step-inspect" data-needs-results><span class="num">4</span>Inspect</a></li>
+        <li><a href="#step-extend" data-step="step-extend" data-needs-results><span class="num">5</span>Extend</a></li>
+      </ol>
+      <p id="next-hint" class="next-hint"></p>
+    </div>
+  </nav>
+
+  <main class="wrap workbench">
+    <div class="setup">
+      <section id="step-input" class="card" aria-labelledby="title-input">
+        <div class="card-head">
+          <span class="badge" aria-hidden="true">1</span>
+          <h2 id="title-input">Input</h2>
+          <button id="load-example" class="small spacer" type="button" title="Fill both boxes with an example 12-marker immunophenotyping panel: several fluorophore options per antibody (some written as aliases) and a viability dye to penalize overlap with.">Load example panel</button>
+          <span id="example-msg" class="example-msg" role="status"></span>
+        </div>
+        <div class="input-cols">
+          <div class="input-col">
+            <label for="input" class="input-label">Antibody-Fluorophore pairs</label>
+            <p class="help">One pair per line, pasted from Excel or a CSV. Give an antibody several fluorophores to let the search choose between them.</p>
+            <div id="input-wrap" class="hl-wrap"><div class="hl-back" aria-hidden="true"></div><textarea id="input" rows="15" placeholder="Antibody&#9;Fluorophore&#10;CD3&#9;BV421&#10;CD3&#9;FITC"></textarea></div>
+          </div>
+          <div class="input-col">
+            <label for="backbone" class="backbone-label">Penalize overlap with (Optional):</label>
+            <p class="help">Fluorophores that are already fixed in the panel, or to stay clear of.</p>
+            <div id="backbone-wrap" class="hl-wrap"><div class="hl-back" aria-hidden="true"></div><textarea id="backbone" rows="15" placeholder="Add existing fluorophores, fluorescent proteins, cell stains, or fluorophores that match your sample's autofluorescence to avoid spectral overlap. E.g.:&#10;&#10;CD45, PE&#10;DAPI&#10;FVS700&#10;BV510"></textarea></div>
+          </div>
+        </div>
+        <div class="input-foot">
+          <div id="live-summary" class="live-summary" aria-live="polite" title="Checked as you type, before computing. Blue: a fluorophore that stands in for one in the matrix by detector. Yellow: not in the matrix, so it is treated as overlapping with nothing."></div>
+          <div class="row-key" aria-hidden="true">
+            <span class="legend">
+              <span class="item"><span class="swatch substituted"></span>Substituted by detector</span>
+              <span class="item"><span class="swatch unmapped"></span>Not in matrix</span>
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <section id="step-settings" class="card" aria-labelledby="title-settings">
+        <div class="card-head">
+          <span class="badge" aria-hidden="true">2</span>
+          <h2 id="title-settings">Settings</h2>
+        </div>
+        <div class="card-body settings-body">
+          <div class="field">
+            <label for="metric">Rank by</label>
+            <select id="metric" title="Score used to rank panels">
+              <option value="condition_index">Condition index</option>
+              <option value="a_optimality" selected>A-optimality (average)</option>
+              <option value="d_optimality">D-optimality (volume)</option>
+              <option value="e_optimality">E-optimality (worst case)</option>
+            </select>
+            <span id="metric-info" class="info-icon" role="img" aria-label="More information" tabindex="0">i<span class="info-tip" role="tooltip">Score used to rank panels. All are computed from the similarity matrix of the panel; lower is better and 1 means perfectly distinct spectra.
 
 Condition index: square root of the largest over the smallest eigenvalue.
 
@@ -284,73 +279,118 @@ D-optimality: total information (determinant based, geometric mean of 1/eigenval
 
 E-optimality: worst-case inflation (1/smallest eigenvalue). Only the most overlapping combination counts.
 
-After Compute, the same metric is used to rank suggested additions.</span></span></div>
-      <div class="topn-line mapped-line"><label><input id="requiremapped" type="checkbox"> Only use fluorophores that are in the matrix</label><span id="requiremapped-info" class="info-icon" role="img" aria-label="More information" tabindex="0" data-info="Fluorophores that are not in the similarity matrix and have no substitute are otherwise treated as overlapping with nothing, which makes panels containing them look better than they are. Antibodies left without any option stay unassigned.">!<span id="requiremapped-tip" class="info-tip" role="tooltip">Fluorophores that are not in the similarity matrix and have no substitute are otherwise treated as overlapping with nothing, which makes panels containing them look better than they are. Antibodies left without any option stay unassigned.</span></span></div>
-      <p id="status">Loading 4 Python workers (first visit takes a while)...</p>
+After Compute, the same metric is used to rank suggested additions.</span></span>
+            <p id="metric-desc" class="help"></p>
+          </div>
+          <div class="field">
+            <label for="topn">Panels to show</label>
+            <input id="topn" type="number" value="10" min="1">
+            <p class="help">Show top N panels, best first.</p>
+          </div>
+          <div class="field" title="Most of the antibodies in the left box to place in the panel (fixed fluorophores are always included). Lower it to leave out antibodies whose fluorophores clash.">
+            <label for="maxfit">Fit at most</label>
+            <span class="inline"><input id="maxfit" type="number" min="1"> of <span id="maxfit-total">0</span> antibodies</span>
+            <p class="help">Lower it to leave out antibodies whose fluorophores clash. Fixed fluorophores are always included.</p>
+          </div>
+          <div class="field check">
+            <label><input id="requiremapped" type="checkbox"> Only use fluorophores that are in the matrix</label>
+            <span id="requiremapped-info" class="info-icon" role="img" aria-label="More information" tabindex="0" data-info="Fluorophores that are not in the similarity matrix and have no substitute are otherwise treated as overlapping with nothing, which makes panels containing them look better than they are. Antibodies left without any option stay unassigned.">!<span id="requiremapped-tip" class="info-tip" role="tooltip">Fluorophores that are not in the similarity matrix and have no substitute are otherwise treated as overlapping with nothing, which makes panels containing them look better than they are. Antibodies left without any option stay unassigned.</span></span>
+          </div>
+          <div class="run-row">
+            <button id="run" disabled>Compute</button>
+            <p id="status" role="status">Loading 4 Python workers (first visit takes a while)...</p>
+          </div>
+        </div>
+      </section>
     </div>
-    <div class="output-panel">
-      <div class="output-label section-heading">Results</div>
-      <div class="results-box">
-        <div id="output"></div>
-        <div class="output-footer">
-          <div class="legend">
-            <span class="item"><span class="swatch assigned"></span>Assigned</span>
-            <span class="item"><span class="swatch substituted"></span>Substituted</span>
-            <span class="item"><span class="swatch unmapped"></span>Unmapped</span>
-            <span class="item"><span class="swatch unassigned"></span>Unassigned</span>
-            <span class="item hint">Click a panel column to show its similarity matrix</span>
-          </div>
-          <button id="copy" type="button" disabled>Copy</button>
+
+    <section id="step-results" class="card results-card" aria-labelledby="title-results">
+      <div class="card-head">
+        <span class="badge" aria-hidden="true">3</span>
+        <h2 id="title-results">Results</h2>
+        <div class="legend spacer">
+          <span class="item"><span class="swatch assigned"></span>Assigned</span>
+          <span class="item"><span class="swatch substituted"></span>Substituted</span>
+          <span class="item"><span class="swatch unmapped"></span>Unmapped</span>
+          <span class="item"><span class="swatch unassigned"></span>Unassigned</span>
         </div>
+        <button id="copy" class="small" type="button" disabled>Copy</button>
       </div>
+      <p class="click-hint">Click a panel column to show its similarity matrix (step 4) and to suggest additions (step 5).</p>
+      <div class="box"><div id="output"></div></div>
       <div id="substitutions" class="substitutions"></div>
-      <div id="matrix-section" class="matrix-section" hidden>
-        <div class="matrix-header">
-          <div class="output-label">Similarity matrix</div>
-          <div class="topn-line">Panel <input id="matrix-panel" type="number" value="1" min="1" max="1"> of <span id="matrix-count">1</span></div>
+    </section>
+
+    <div id="matrix-section" class="after" hidden>
+      <section id="step-inspect" class="card" aria-labelledby="title-inspect">
+        <div class="card-head">
+          <span class="badge" aria-hidden="true">4</span>
+          <h2 id="title-inspect">Inspect: similarity matrix</h2>
+          <div class="selector spacer">
+            <button id="matrix-prev" class="step-btn" type="button" aria-label="Previous panel">&#9664;</button>
+            Panel <input id="matrix-panel" type="number" value="1" min="1" max="1"> of <span id="matrix-count">1</span>
+            <button id="matrix-next" class="step-btn" type="button" aria-label="Next panel">&#9654;</button>
+          </div>
+        </div>
+        <div class="card-body">
           <div id="matrix-ci" class="matrix-ci"></div>
-        </div>
-        <div class="results-box">
-          <div id="matrix-scroll" class="matrix-scroll"></div>
-          <div class="output-footer">
-            <div class="legend">
-              <span class="item">0<span class="swatch scale"></span>1 similarity</span>
-              <span id="matrix-fixed-key" class="item" hidden><span class="swatch fixed"></span>Line: fixed by you (optional input) | found by the search</span>
-            </div>
-          </div>
-        </div>
-        <div id="matrix-warning" class="matrix-warning" hidden></div>
-        <div class="output-label section-heading suggest-heading">Suggest additional fluorophores to add to the panel</div>
-        <div class="suggest-controls">
-          <button id="suggest-run" type="button">Suggest</button>
-          Show <input id="suggest-n" type="number" value="1" min="1" max="5" title="Up to 5"> additional fluorophore(s) from a pool of <span id="suggest-pool">?</span> fluorophores to add to panel <b id="suggest-panel">1</b>
-          <span id="suggest-status" class="suggest-status"></span>
-        </div>
-        <div id="suggest-section" class="suggest-section" hidden>
-          <div id="suggest-title" class="output-label"></div>
-          <div class="results-box"><div id="suggest-rows" class="suggest-rows"></div></div>
-          <div class="matrix-header">
-            <div class="topn-line">Suggestion <input id="suggest-pick" type="number" value="1" min="1" max="1"> of <span id="suggest-count">1</span></div>
-            <div id="suggest-ci" class="matrix-ci"></div>
-          </div>
-          <div class="results-box">
-            <div id="suggest-scroll" class="matrix-scroll"></div>
-            <div class="output-footer">
+          <div id="matrix-warning" class="matrix-warning" hidden></div>
+          <div class="box">
+            <div id="matrix-scroll" class="matrix-scroll"></div>
+            <div class="box-foot">
               <div class="legend">
                 <span class="item">0<span class="swatch scale"></span>1 similarity</span>
-                <span class="item"><span class="swatch base"></span>Panel fluorophores</span>
-                <span class="item"><span class="swatch new"></span>Suggested additions</span>
-                <span id="suggest-fixed-key" class="item" hidden><span class="swatch fixed"></span>Line: fixed by you (optional input) | found by the search</span>
+                <span id="matrix-fixed-key" class="item" hidden><span class="swatch fixed"></span>Line: fixed by you (optional input) | found by the search</span>
               </div>
             </div>
           </div>
         </div>
-      </div>
-      <div id="matrix-data" hidden></div>
-      <div id="suggest-data" hidden></div>
-      <div id="live-data" hidden></div>
+      </section>
+
+      <section id="step-extend" class="card" aria-labelledby="title-extend">
+        <div class="card-head">
+          <span class="badge" aria-hidden="true">5</span>
+          <h2 id="title-extend">Extend: suggest additional fluorophores to add to the panel</h2>
+        </div>
+        <div class="card-body">
+          <div class="suggest-controls">
+            <span class="suggest-sentence">Show <input id="suggest-n" type="number" value="1" min="1" max="5" title="Up to 5"> additional fluorophore(s) from a pool of <span id="suggest-pool">?</span> fluorophores to add to panel <b id="suggest-panel">1</b></span>
+            <span class="suggest-actions">
+              <button id="suggest-run" type="button">Suggest</button>
+              <span id="suggest-status" class="suggest-status"></span>
+            </span>
+          </div>
+          <div id="suggest-section" class="suggest-section" hidden>
+            <div id="suggest-title" class="suggest-title"></div>
+            <div class="box"><div id="suggest-rows" class="suggest-rows"></div></div>
+            <div class="pick-row">
+              <div class="selector">
+                <button id="suggest-prev" class="step-btn" type="button" aria-label="Previous suggestion">&#9664;</button>
+                Suggestion <input id="suggest-pick" type="number" value="1" min="1" max="1"> of <span id="suggest-count">1</span>
+                <button id="suggest-next" class="step-btn" type="button" aria-label="Next suggestion">&#9654;</button>
+              </div>
+              <div id="suggest-ci" class="matrix-ci"></div>
+            </div>
+            <div class="box">
+              <div id="suggest-scroll" class="matrix-scroll"></div>
+              <div class="box-foot">
+                <div class="legend">
+                  <span class="item">0<span class="swatch scale"></span>1 similarity</span>
+                  <span class="item"><span class="swatch base"></span>Panel fluorophores</span>
+                  <span class="item"><span class="swatch new"></span>Suggested additions</span>
+                  <span id="suggest-fixed-key" class="item" hidden><span class="swatch fixed"></span>Line: fixed by you (optional input) | found by the search</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
-  </div>
+
+    <div id="matrix-data" hidden></div>
+    <div id="suggest-data" hidden></div>
+    <div id="live-data" hidden></div>
+  </main>
 
   <script>
     (function () {
@@ -1092,6 +1132,94 @@ After Compute, the same metric is used to rank suggested additions.</span></span
       checkbox.addEventListener('change', stale);
 
       new MutationObserver(load).observe(data, { childList: true });
+    })();
+  </script>
+
+  <script>
+    // Guidance around the workflow. It only reads the page and the existing controls;
+    // nothing here is needed for computing.
+    (function () {
+      const $ = function (id) { return document.getElementById(id); };
+      const hint = $('next-hint'), input = $('input'), run = $('run'), out = $('output');
+      const matrix = $('matrix-section'), suggestion = $('suggest-section'), metric = $('metric');
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const behavior = reduceMotion ? 'auto' : 'smooth';
+
+      // What the selected score means, in one line (the "i" next to it has the full text).
+      const METRIC_TEXT = {
+        condition_index: 'Looks only at the best and worst directions of the similarity matrix.',
+        a_optimality: 'Average variance inflation: every overlapping fluorophore counts.',
+        d_optimality: 'Total information: rewards the overall spread of the spectra.',
+        e_optimality: 'Worst-case inflation: only the most overlapping combination counts.'
+      };
+      function showMetric() {
+        $('metric-desc').textContent = (METRIC_TEXT[metric.value] || '') + ' Lower is better; 1 is perfectly distinct.';
+      }
+      metric.addEventListener('change', showMetric);
+      showMetric();
+
+      // Previous / next buttons beside the two number boxes. They go through the box's own
+      // input event, so the matrix scripts treat them exactly like typing.
+      function stepper(boxId, prevId, nextId) {
+        const box = $(boxId);
+        function go(delta) {
+          const max = parseInt(box.max, 10) || 1;
+          const n = Math.min(max, Math.max(1, (parseInt(box.value, 10) || 1) + delta));
+          box.value = n;
+          box.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        $(prevId).addEventListener('click', function () { go(-1); });
+        $(nextId).addEventListener('click', function () { go(1); });
+      }
+      stepper('matrix-panel', 'matrix-prev', 'matrix-next');
+      stepper('suggest-pick', 'suggest-prev', 'suggest-next');
+
+      // "Next:" line in the step bar, and which steps can be opened.
+      let hadResults = false;
+      function update() {
+        const results = !!out.querySelector('table');
+        document.body.classList.toggle('has-results', results);
+        let text;
+        if (results) {
+          text = suggestion.hidden
+            ? 'click a panel column to inspect it, then suggest fluorophores to add.'
+            : 'click a suggestion to see its matrix, or change the inputs and compute again.';
+        } else if (!input.value.trim()) {
+          text = 'paste antibody-fluorophore pairs in step 1, or load the example.';
+        } else if (run.disabled) {
+          text = 'wait for the search to finish (see the status under Compute).';
+        } else {
+          text = 'check the settings, then press Compute.';
+        }
+        hint.textContent = text;
+        if (results && !hadResults) {
+          // Bring new results into view, unless they are already on screen.
+          const top = $('step-results').getBoundingClientRect().top;
+          if (top > window.innerHeight * 0.6) $('step-results').scrollIntoView({ behavior: behavior, block: 'start' });
+        }
+        hadResults = results;
+      }
+      new MutationObserver(update).observe(out, { childList: true });
+      new MutationObserver(update).observe(suggestion, { attributes: true, attributeFilter: ['hidden'] });
+      new MutationObserver(update).observe(run, { attributes: true, attributeFilter: ['disabled'] });
+      input.addEventListener('input', update);
+      update();
+
+      // Mark the step bar entry of the section that is on screen.
+      if (window.IntersectionObserver) {
+        const links = {};
+        Array.prototype.forEach.call(document.querySelectorAll('.steps a'), function (a) { links[a.dataset.step] = a; });
+        const visible = new Set();
+        const order = ['step-input', 'step-settings', 'step-results', 'step-inspect', 'step-extend'];
+        const spy = new IntersectionObserver(function (entries) {
+          entries.forEach(function (e) { if (e.isIntersecting) visible.add(e.target.id); else visible.delete(e.target.id); });
+          const current = order.find(function (id) { return visible.has(id); });
+          order.forEach(function (id) {
+            if (id === current) links[id].setAttribute('aria-current', 'step'); else links[id].removeAttribute('aria-current');
+          });
+        }, { rootMargin: '-20% 0px -55% 0px' });
+        order.forEach(function (id) { spy.observe($(id)); });
+      }
     })();
   </script>
 
