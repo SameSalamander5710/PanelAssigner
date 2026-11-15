@@ -36,6 +36,8 @@
     .tagline { margin: .3rem 0 0; max-width: 46rem; color: var(--muted); }
     .meta { margin: 0; color: var(--muted); font-size: .85rem; text-align: right; }
     .meta span { display: block; }
+    /* Left-align the meta text when it has wrapped below the title text (set by script). */
+    .masthead.meta-wrapped .meta { text-align: left; }
 
     /* Step bar */
     .stepbar { position: sticky; top: 0; z-index: 20; background: var(--surface); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
@@ -180,11 +182,13 @@
     .matrix-warning { border: 1px solid #d9a400; border-left-width: 4px; border-radius: 4px; background: #fff8e1; padding: .5rem .75rem; font-size: .88rem; }
     .matrix-warning p { margin: 0; }
     .matrix-warning ul { margin: .25rem 0 .5rem 1.25rem; padding: 0; }
-    .suggest-controls { display: flex; flex-direction: column; align-items: flex-start; gap: .6rem; }
+    .suggest-controls { display: flex; align-items: center; gap: .75rem; }
+    .suggest-text { flex: 1 1 auto; min-width: 0; }
     .suggest-sentence { line-height: 2; }
-    .suggest-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .75rem; }
-    #suggest-n { width: 4rem; }
-    .suggest-status { font-size: .85rem; color: var(--muted); }
+    .suggest-actions { flex: none; display: flex; align-items: center; padding-left: .75rem; border-left: 1px solid var(--line); }
+    #suggest-n { width: 4rem; line-height: 1.45; }
+    .suggest-status { display: block; font-size: .85rem; color: var(--muted); }
+    .suggest-status:empty { display: none; }
     .suggest-section { display: flex; flex-direction: column; gap: .75rem; min-width: 0; padding-top: .75rem; border-top: 1px solid var(--line); }
     .suggest-title { font-weight: 650; }
     .suggest-rows { overflow-x: auto; }
@@ -202,7 +206,7 @@
   <header class="wrap masthead">
     <div>
       <h1>PanelAssigner</h1>
-      <p class="tagline">Simple optimizer for flow cytometry panel design that assigns fluorophores to antibodies and ranks panel configurations by spectral complexity.</p>
+      <p class="tagline">Simple optimizer for flow cytometry panel design that assigns fluorophores to antibodies<br>and ranks panel configurations by spectral complexity.</p>
     </div>
     <p class="meta">
       <span>Based on configuration: Cytek Aurora 5L 16UV-16V-14B-10YG-8R</span>
@@ -354,11 +358,13 @@ After Compute, the same metric is used to rank suggested additions.</span></span
         </div>
         <div class="card-body">
           <div class="suggest-controls">
-            <span class="suggest-sentence">Show <input id="suggest-n" type="number" value="1" min="1" max="5" title="Up to 5"> additional fluorophore(s) from a pool of <span id="suggest-pool">?</span> fluorophores to add to panel <b id="suggest-panel">1</b></span>
-            <span class="suggest-actions">
-              <button id="suggest-run" type="button">Suggest</button>
+            <div class="suggest-text">
+              <span class="suggest-sentence">Show <input id="suggest-n" type="number" value="1" min="1" max="5" title="Up to 5"> additional fluorophore(s) from a pool of <span id="suggest-pool">?</span> fluorophores to add to panel <b id="suggest-panel">1</b></span>
               <span id="suggest-status" class="suggest-status"></span>
-            </span>
+            </div>
+            <div class="suggest-actions">
+              <button id="suggest-run" type="button">Suggest</button>
+            </div>
           </div>
           <div id="suggest-section" class="suggest-section" hidden>
             <div id="suggest-title" class="suggest-title"></div>
@@ -1220,6 +1226,22 @@ After Compute, the same metric is used to rank suggested additions.</span></span
         }, { rootMargin: '-20% 0px -55% 0px' });
         order.forEach(function (id) { spy.observe($(id)); });
       }
+    })();
+  </script>
+
+  <script>
+    // The meta text is right-aligned while it sits beside the title text. When it wraps
+    // below (narrow window, or a scroll bar appearing), left-align it instead.
+    (function () {
+      const masthead = document.querySelector('.masthead');
+      const title = masthead.firstElementChild, meta = masthead.querySelector('.meta');
+      function align() {
+        const wrapped = meta.getBoundingClientRect().left <= title.getBoundingClientRect().left + 1;
+        masthead.classList.toggle('meta-wrapped', wrapped);
+      }
+      if (window.ResizeObserver) new ResizeObserver(align).observe(masthead);
+      window.addEventListener('resize', align);
+      align();
     })();
   </script>
 
