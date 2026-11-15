@@ -8,11 +8,9 @@ B1,Vio 515,Antibody,2
 B10,PerCP-eFluor 710,Antibody,3
 B10,PerCP-Vio 700,Antibody,3
 B10,RB705,Antibody,5
-B12,BB755,Antibody,unknown
-B12,BB755-P,Antibody,4
+B12,BB755,Antibody,4
 B12,RB744,Antibody,5
-B14,BB790,Antibody,unknown
-B14,BB790-P,Antibody,4
+B14,BB790,Antibody,4
 B14,RB780,Antibody,5
 B14,RB824,Antibody,4
 B2,Alexa Fluor 488,Antibody,2
@@ -40,9 +38,9 @@ B3,SYTOX Green,Dye,unknown
 B3,Venus,Fluorescent Protein,unknown
 B3,VioBright FITC,Antibody,3
 B3,YFP,Fluorescent Protein,unknown
-B6,BB630,Antibody,unknown
+B6,BB630,Antibody,4
 B6,MitoSOX Red,Dye,unknown
-B7,BB660,Antibody,unknown
+B7,BB660,Antibody,3
 B8,PerCP,Antibody,1
 B8,RB670,Antibody,5
 B9,BB700,Antibody,3
@@ -247,8 +245,6 @@ XX,Alexa Fluor 635,Antibody,3
 XX,Alexa Fluor 660,Antibody,3
 XX,APC-Alexa 680,Antibody,2
 XX,APC-Cy5.5,Antibody,2
-XX,Brilliant Blue 630-P2,Antibody,4
-XX,Brilliant Blue 660-P2,Antibody,3
 XX,Calcein,Dye,unknown
 XX,Calcein AM,Dye,unknown
 XX,Calcein Blue,Dye,unknown
