@@ -1,240 +1,348 @@
-﻿Detector,Fluorophore,Type
-B1,BB515,Antibody
-B1,CellTrace Calcein Green AM,Dye
-B1,cFluor B515,Antibody
-B1,eGFP,Fluorescent Protein
-B1,Live-or-Dye 488/515,Dye
-B1,Vio 515,Antibody
-B10,PerCP-eFluor 710,Antibody
-B10,PerCP-Vio 700,Antibody
-B10,RB705,Antibody
-B12,BB755,Antibody
-B12,BB755-P,Antibody
-B12,RB744,Antibody
-B14,BB790,Antibody
-B14,BB790-P,Antibody
-B14,RB780,Antibody
-B14,RB824,Antibody
-B2,Alexa Fluor 488,Antibody
-B2,CellTrace CFSE,Dye
-B2,CellTracker Green,Dye
-B2,CellTracker Green CMFDA,Dye
-B2,cFluor B532,Antibody
-B2,CFSE,Dye
-B2,FITC,Antibody
-B2,GFP,Fluorescent Protein
-B2,Ghost Dye Blue 516,Dye
-B2,Kiravia Blue 520,Antibody
-B2,pHrodo Green,Dye
-B2,Zombie Green,Dye
-B3,Alexa Fluor 532,Antibody
-B3,cFluor B548,Antibody
-B3,eFluor 520,Dye
-B3,Fixable Viability Stain 520,Dye
-B3,LIVE/DEAD Green,Dye
-B3,Live-or-Dye 510/550,Dye
-B3,MitoTracker Green,Dye
-B3,Northern Lights 493,Antibody
-B3,Spark Blue 550,Antibody
-B3,SYTOX Green,Dye
-B3,Venus,Fluorescent Protein
-B3,VioBright FITC,Antibody
-B3,YFP,Fluorescent Protein
-B6,BB630,Antibody
-B6,MitoSOX Red,Dye
-B7,BB660,Antibody
-B8,PerCP,Antibody
-B8,RB670,Antibody
-B9,BB700,Antibody
-B9,cFluor B690,Antibody
-B9,PerCP-Cy5.5,Antibody
-R1,APC,Antibody
-R1,ATTO 647N,Microscopy
-R1,CellTrace Far Red,Dye
-R1,CellTracker Deep Red,Dye
-R1,cFluor R659,Antibody
-R1,Cy5,Microscopy
-R1,DiD,Dye
-R1,ViaKrome 638,Dye
-R2,Alexa Fluor 647,Antibody
-R2,cFluor R668,Antibody
-R2,DyLight 650,Antibody
-R2,eFluor 660,Antibody
-R2,Fixable Viability Stain 660,Dye
-R2,Janelia Fluor 646,Dye
-R2,LIVE/DEAD Far Red,Dye
-R2,Live-or-Dye 640/662,Dye
-R2,Northern Lights 637,Antibody
-R2,SYTOX Deep Red,Dye
-R2,Vio 667,Antibody
-R2,VioBright 667,Antibody
-R4,Alexa Fluor 680,Antibody
-R4,Alexa Fluor 700,Antibody
-R4,APC-Alexa Fluor 700,Antibody
-R4,APC-R700,Antibody
-R4,cFluor R720,Antibody
-R4,Fixable Viability Stain 700,Dye
-R4,Ghost Dye Red 710,Dye
-R4,R718,Antibody
-R4,redFluor 710,Antibody
-R4,Spark Red 718,Antibody
-R5,ViaKrome 808,Dye
-R6,Zombie NIR,Dye
-R7,Alexa Fluor 750,Antibody
-R7,APC/Fire 750,Antibody
-R7,APC-Alexa Fluor 750,Antibody
-R7,APC-C750,Antibody
-R7,APC-Cy7,Antibody
-R7,APC-eFluor 780,Antibody
-R7,APC-H7,Antibody
-R7,APC-Vio 770,Antibody
-R7,cFluor R780,Antibody
-R7,eFluor 780,Dye
-R7,Fixable Viability Stain 780,Dye
-R7,Ghost Dye Red 780,Dye
-R7,LIVE/DEAD NIR,Dye
-R7,Live-or-Dye 750/777,Dye
-R8,Alexa Fluor 790,Antibody
-R8,APC/Fire 810,Antibody
-R8,cFluor R840,Antibody
-UV1,Spark UV 387,Antibody
-UV10,BUV615,Antibody
-UV11,BUV661,Antibody
-UV14,BUV737,Antibody
-UV16,BUV805,Antibody
-UV16,cFluor UV790,Antibody
-UV2,BUV395,Antibody
-UV2,CellTrace Blue,Dye
-UV6,Alexa Fluor 350,Antibody
-UV6,CellTracker Blue,Dye
-UV6,eFluor 455,Dye
-UV6,Ghost Dye UV 450,Dye
-UV6,LIVE/DEAD Blue,Dye
-UV7,BUV496,Antibody
-UV7,DAPI,Dye
-UV7,Zombie UV,Dye
-UV9,BUV563,Antibody
-V1,BV421,Antibody
-V10,BV605,Antibody
-V10,cFluor V610,Antibody
-V10,Fixable Viability Stain 575V,Dye
-V10,Qdot 605,Antibody
-V10,Super Bright 600,Antibody
-V10,Zombie Yellow,Dye
-V11,BV650,Antibody
-V11,Qdot 655,Antibody
-V11,Super Bright 645,Antibody
-V13,BV711,Antibody
-V13,Qdot 705,Antibody
-V13,Super Bright 702,Antibody
-V14,BV750,Antibody
-V15,BV785,Antibody
-V15,BV786,Antibody
-V15,Qdot 800,Antibody
-V15,Super Bright 780,Antibody
-V16,RV828,Antibody
-V2,Alexa Fluor 405,Antibody
-V2,cFluor V420,Antibody
-V2,Super Bright 436,Antibody
-V2,ViaKrome 405,Dye
-V2,Zombie Violet,Dye
-V3,BFP,Fluorescent Protein
-V3,CellTrace Violet,Dye
-V3,cFluor V450,Antibody
-V3,eFluor 450,Antibody
-V3,Fixable Viability Stain 450,Dye
-V3,Ghost Dye Violet 450,Dye
-V3,LIVE/DEAD Violet,Dye
-V3,Pacific Blue,Antibody
-V3,V450,Antibody
-V3,VioBlue,Antibody
-V3,violetFluor 450,Antibody
-V5,AmCyan,Fluorescent Protein
-V5,BV480,Antibody
-V5,mCerulean3,Fluorescent Protein
-V5,Spark Violet 500,Antibody
-V5,violetFluor 500,Antibody
-V6,CellTracker Violet,Dye
-V6,CFP,Fluorescent Protein
-V6,Sapphire,Fluorescent Protein
-V7,Amethyst Orange,Antibody
-V7,BV510,Antibody
-V7,eFluor 506,Antibody
-V7,Fixable Viability Stain 510,Dye
-V7,Ghost Dye Violet 510 & 540,Dye
-V7,Krome Orange,Antibody
-V7,LIVE/DEAD Aqua,Dye
-V7,OC515,Antibody
-V7,V500,Antibody
-V7,VioGreen,Antibody
-V7,Zombie Aqua,Dye
-V8,BV570,Antibody
-V8,cFluor V547,Antibody
-V8,LIVE/DEAD Yellow,Dye
-V8,Live-or-Dye 405/545,Dye
-V8,LSSmOrange,Fluorescent Protein
-V8,Pacific Orange,Antibody
-YG1,Alexa Fluor 546,Antibody
-YG1,Alexa Fluor 555,Antibody
-YG1,BYG584,Antibody
-YG1,CellTrace Yellow,Dye
-YG1,CellTracker Orange,Dye
-YG1,cFluor BYG575,Antibody
-YG1,cFluor YG584,Antibody
-YG1,Cy3,Antibody
-YG1,DsRed,Fluorescent Protein
-YG1,eFluor 570,Antibody
-YG1,Fixable Viability Stain 570,Dye
-YG1,Live-or-Dye 568/583,Dye
-YG1,MitoTracker Orange,Dye
-YG1,mOrange,Fluorescent Protein
-YG1,Northern Lights 557,Antibody
-YG1,PE,Antibody
-YG1,pHrodo Red,Dye
-YG1,RFP,Fluorescent Protein
-YG1,Spark YG 570,Antibody
-YG1,SYTOX Orange,Dye
-YG1,TAMRA,Dye
-YG1,tdTomato,Fluorescent Protein
-YG1,TMRE,Dye
-YG1,TMRM,Dye
-YG1,ViaKrome 561,Dye
-YG10,PE-Fire 810,Antibody
-YG2,mApple,Fluorescent Protein
-YG3,Alexa Fluor 568,Antibody
-YG3,Alexa Fluor 594,Antibody
-YG3,Alexa Fluor 610,Antibody
-YG3,CellTrace BODIPY,Dye
-YG3,CellTracker Red,Dye
-YG3,cFluor BYG610,Antibody
-YG3,cFluor YG610,Antibody
-YG3,ECD,Antibody
-YG3,eFluor 615,Antibody
-YG3,LIVE/DEAD Red,Dye
-YG3,Live-or-Dye 594/614,Dye
-YG3,mCherry,Fluorescent Protein
-YG3,PE-CF594,Antibody
-YG3,PE-Dazzle 594,Antibody
-YG3,PE-eFluor 610,Antibody
-YG3,PE-Texas Red,Antibody
-YG3,PE-Vio 615,Antibody
-YG3,Zombie Red,Dye
-YG4,7-AAD,Dye
-YG4,cFluor BYG645,Antibody
-YG4,Fixable Viability Stain 620,Dye
-YG4,mKate,Fluorescent Protein
-YG4,PE/Fire 640,Antibody
-YG4,PE-Alexa Fluor 610,Antibody
-YG4,PI,Dye
-YG5,cFluor BYG667,Antibody
-YG5,PE-Cy5,Antibody
-YG5,Tri-Color,Antibody
-YG6,cFluor BYG680,Antibody
-YG7,cFluor BYG710,Antibody
-YG7,PE/Fire 700,Antibody
-YG7,PE-Alexa Fluor 700,Antibody
-YG7,PE-Cy5.5,Antibody
-YG9,cFluor BYG781,Antibody
-YG9,PE-Cy7,Antibody
-YG9,PE-Vio 770,Antibody
-YG9,RY775,Antibody
+﻿Detector,Fluorophore,Type,Brightness
+B1,BB515,Antibody,3
+B1,CellTrace Calcein Green AM,Dye,unknown
+B1,cFluor B515,Antibody,unknown
+B1,eGFP,Fluorescent Protein,unknown
+B1,Live-or-Dye 488/515,Dye,unknown
+B1,Vio 515,Antibody,2
+B10,PerCP-eFluor 710,Antibody,3
+B10,PerCP-Vio 700,Antibody,3
+B10,RB705,Antibody,5
+B12,BB755,Antibody,unknown
+B12,BB755-P,Antibody,4
+B12,RB744,Antibody,5
+B14,BB790,Antibody,unknown
+B14,BB790-P,Antibody,4
+B14,RB780,Antibody,5
+B14,RB824,Antibody,4
+B2,Alexa Fluor 488,Antibody,2
+B2,CellTrace CFSE,Dye,unknown
+B2,CellTracker Green,Dye,unknown
+B2,CellTracker Green CMFDA,Dye,unknown
+B2,cFluor B532,Antibody,1
+B2,CFSE,Dye,unknown
+B2,FITC,Antibody,2
+B2,GFP,Fluorescent Protein,unknown
+B2,Ghost Dye Blue 516,Dye,unknown
+B2,Kiravia Blue 520,Antibody,unknown
+B2,pHrodo Green,Dye,unknown
+B2,Zombie Green,Dye,unknown
+B3,Alexa Fluor 532,Antibody,1
+B3,cFluor B548,Antibody,1
+B3,eFluor 520,Dye,unknown
+B3,Fixable Viability Stain 520,Dye,unknown
+B3,LIVE/DEAD Green,Dye,unknown
+B3,Live-or-Dye 510/550,Dye,unknown
+B3,MitoTracker Green,Dye,unknown
+B3,Northern Lights 493,Antibody,unknown
+B3,Spark Blue 550,Antibody,1
+B3,SYTOX Green,Dye,unknown
+B3,Venus,Fluorescent Protein,unknown
+B3,VioBright FITC,Antibody,3
+B3,YFP,Fluorescent Protein,unknown
+B6,BB630,Antibody,unknown
+B6,MitoSOX Red,Dye,unknown
+B7,BB660,Antibody,unknown
+B8,PerCP,Antibody,1
+B8,RB670,Antibody,5
+B9,BB700,Antibody,3
+B9,cFluor B690,Antibody,2
+B9,PerCP-Cy5.5,Antibody,2
+R1,APC,Antibody,5
+R1,ATTO 647N,Microscopy,unknown
+R1,CellTrace Far Red,Dye,unknown
+R1,CellTracker Deep Red,Dye,unknown
+R1,cFluor R659,Antibody,5
+R1,Cy5,Microscopy,unknown
+R1,DiD,Dye,unknown
+R1,ViaKrome 638,Dye,unknown
+R2,Alexa Fluor 647,Antibody,4
+R2,cFluor R668,Antibody,4
+R2,DyLight 650,Antibody,unknown
+R2,eFluor 660,Antibody,unknown
+R2,Fixable Viability Stain 660,Dye,unknown
+R2,Janelia Fluor 646,Dye,unknown
+R2,LIVE/DEAD Far Red,Dye,unknown
+R2,Live-or-Dye 640/662,Dye,unknown
+R2,Northern Lights 637,Antibody,unknown
+R2,SYTOX Deep Red,Dye,unknown
+R2,Vio 667,Antibody,3
+R2,VioBright 667,Antibody,5
+R4,Alexa Fluor 680,Antibody,1
+R4,Alexa Fluor 700,Antibody,1
+R4,APC-Alexa Fluor 700,Antibody,2
+R4,APC-R700,Antibody,unknown
+R4,cFluor R720,Antibody,2
+R4,Fixable Viability Stain 700,Dye,unknown
+R4,Ghost Dye Red 710,Dye,unknown
+R4,R718,Antibody,unknown
+R4,redFluor 710,Antibody,unknown
+R4,Spark Red 718,Antibody,3
+R5,ViaKrome 808,Dye,unknown
+R6,Zombie NIR,Dye,unknown
+R7,Alexa Fluor 750,Antibody,1
+R7,APC/Fire 750,Antibody,2
+R7,APC-Alexa Fluor 750,Antibody,1
+R7,APC-C750,Antibody,unknown
+R7,APC-Cy7,Antibody,1
+R7,APC-eFluor 780,Antibody,2
+R7,APC-H7,Antibody,2
+R7,APC-Vio 770,Antibody,2
+R7,cFluor R780,Antibody,2
+R7,eFluor 780,Dye,unknown
+R7,Fixable Viability Stain 780,Dye,unknown
+R7,Ghost Dye Red 780,Dye,unknown
+R7,LIVE/DEAD NIR,Dye,unknown
+R7,Live-or-Dye 750/777,Dye,unknown
+R8,Alexa Fluor 790,Antibody,1
+R8,APC/Fire 810,Antibody,3
+R8,cFluor R840,Antibody,3
+UV1,Spark UV 387,Antibody,2
+UV10,BUV615,Antibody,3
+UV11,BUV661,Antibody,3
+UV14,BUV737,Antibody,3
+UV16,BUV805,Antibody,2
+UV16,cFluor UV790,Antibody,2
+UV2,BUV395,Antibody,2
+UV2,CellTrace Blue,Dye,unknown
+UV6,Alexa Fluor 350,Antibody,1
+UV6,CellTracker Blue,Dye,unknown
+UV6,eFluor 455,Dye,unknown
+UV6,Ghost Dye UV 450,Dye,unknown
+UV6,LIVE/DEAD Blue,Dye,unknown
+UV7,BUV496,Antibody,2
+UV7,DAPI,Dye,unknown
+UV7,Zombie UV,Dye,unknown
+UV9,BUV563,Antibody,3
+V1,BV421,Antibody,5
+V10,BV605,Antibody,2
+V10,cFluor V610,Antibody,1
+V10,Fixable Viability Stain 575V,Dye,unknown
+V10,Qdot 605,Antibody,4
+V10,Super Bright 600,Antibody,3
+V10,Zombie Yellow,Dye,unknown
+V11,BV650,Antibody,3
+V11,Qdot 655,Antibody,5
+V11,Super Bright 645,Antibody,2
+V13,BV711,Antibody,3
+V13,Qdot 705,Antibody,5
+V13,Super Bright 702,Antibody,3
+V14,BV750,Antibody,3
+V15,BV785,Antibody,3
+V15,BV786,Antibody,3
+V15,Qdot 800,Antibody,5
+V15,Super Bright 780,Antibody,2
+V16,RV828,Antibody,3
+V2,Alexa Fluor 405,Antibody,2
+V2,cFluor V420,Antibody,2
+V2,Super Bright 436,Antibody,4
+V2,ViaKrome 405,Dye,unknown
+V2,Zombie Violet,Dye,unknown
+V3,BFP,Fluorescent Protein,unknown
+V3,CellTrace Violet,Dye,unknown
+V3,cFluor V450,Antibody,2
+V3,eFluor 450,Antibody,2
+V3,Fixable Viability Stain 450,Dye,unknown
+V3,Ghost Dye Violet 450,Dye,unknown
+V3,LIVE/DEAD Violet,Dye,unknown
+V3,Pacific Blue,Antibody,2
+V3,V450,Antibody,2
+V3,VioBlue,Antibody,2
+V3,violetFluor 450,Antibody,unknown
+V5,AmCyan,Fluorescent Protein,unknown
+V5,BV480,Antibody,2
+V5,mCerulean3,Fluorescent Protein,unknown
+V5,Spark Violet 500,Antibody,1
+V5,violetFluor 500,Antibody,unknown
+V6,CellTracker Violet,Dye,unknown
+V6,CFP,Fluorescent Protein,unknown
+V6,Sapphire,Fluorescent Protein,unknown
+V7,Amethyst Orange,Antibody,unknown
+V7,BV510,Antibody,2
+V7,eFluor 506,Antibody,1
+V7,Fixable Viability Stain 510,Dye,unknown
+V7,Ghost Dye Violet 510 & 540,Dye,unknown
+V7,Krome Orange,Antibody,unknown
+V7,LIVE/DEAD Aqua,Dye,unknown
+V7,OC515,Antibody,unknown
+V7,V500,Antibody,2
+V7,VioGreen,Antibody,1
+V7,Zombie Aqua,Dye,unknown
+V8,BV570,Antibody,2
+V8,cFluor V547,Antibody,1
+V8,LIVE/DEAD Yellow,Dye,unknown
+V8,Live-or-Dye 405/545,Dye,unknown
+V8,LSSmOrange,Fluorescent Protein,unknown
+V8,Pacific Orange,Antibody,1
+YG1,Alexa Fluor 546,Antibody,2
+YG1,Alexa Fluor 555,Antibody,2
+YG1,BYG584,Antibody,unknown
+YG1,CellTrace Yellow,Dye,unknown
+YG1,CellTracker Orange,Dye,unknown
+YG1,cFluor BYG575,Antibody,5
+YG1,cFluor YG584,Antibody,4
+YG1,Cy3,Antibody,unknown
+YG1,DsRed,Fluorescent Protein,unknown
+YG1,eFluor 570,Antibody,unknown
+YG1,Fixable Viability Stain 570,Dye,unknown
+YG1,Live-or-Dye 568/583,Dye,unknown
+YG1,MitoTracker Orange,Dye,unknown
+YG1,mOrange,Fluorescent Protein,unknown
+YG1,Northern Lights 557,Antibody,unknown
+YG1,PE,Antibody,5
+YG1,pHrodo Red,Dye,unknown
+YG1,RFP,Fluorescent Protein,unknown
+YG1,Spark YG 570,Antibody,2
+YG1,SYTOX Orange,Dye,unknown
+YG1,TAMRA,Dye,unknown
+YG1,tdTomato,Fluorescent Protein,unknown
+YG1,TMRE,Dye,unknown
+YG1,TMRM,Dye,unknown
+YG1,ViaKrome 561,Dye,unknown
+YG10,PE-Fire 810,Antibody,4
+YG2,mApple,Fluorescent Protein,unknown
+YG3,Alexa Fluor 568,Antibody,2
+YG3,Alexa Fluor 594,Antibody,2
+YG3,Alexa Fluor 610,Antibody,2
+YG3,CellTrace BODIPY,Dye,unknown
+YG3,CellTracker Red,Dye,unknown
+YG3,cFluor BYG610,Antibody,4
+YG3,cFluor YG610,Antibody,3
+YG3,ECD,Antibody,unknown
+YG3,eFluor 615,Antibody,unknown
+YG3,LIVE/DEAD Red,Dye,unknown
+YG3,Live-or-Dye 594/614,Dye,unknown
+YG3,mCherry,Fluorescent Protein,unknown
+YG3,PE-CF594,Antibody,5
+YG3,PE-Dazzle 594,Antibody,5
+YG3,PE-eFluor 610,Antibody,4
+YG3,PE-Texas Red,Antibody,3
+YG3,PE-Vio 615,Antibody,4
+YG3,Zombie Red,Dye,unknown
+YG4,7-AAD,Dye,unknown
+YG4,cFluor BYG645,Antibody,4
+YG4,Fixable Viability Stain 620,Dye,unknown
+YG4,mKate,Fluorescent Protein,unknown
+YG4,PE/Fire 640,Antibody,4
+YG4,PE-Alexa Fluor 610,Antibody,3
+YG4,PI,Dye,unknown
+YG5,cFluor BYG667,Antibody,3
+YG5,PE-Cy5,Antibody,5
+YG5,Tri-Color,Antibody,2
+YG6,cFluor BYG680,Antibody,unknown
+YG7,cFluor BYG710,Antibody,4
+YG7,PE/Fire 700,Antibody,5
+YG7,PE-Alexa Fluor 700,Antibody,3
+YG7,PE-Cy5.5,Antibody,5
+YG9,cFluor BYG781,Antibody,4
+YG9,PE-Cy7,Antibody,4
+YG9,PE-Vio 770,Antibody,4
+YG9,RY775,Antibody,5
+XX,5-CFDA,Dye,unknown
+XX,Alexa Fluor 430,Antibody,2
+XX,Alexa Fluor 514,Antibody,1
+XX,Alexa Fluor 561,Antibody,3
+XX,Alexa Fluor 633,Antibody,3
+XX,Alexa Fluor 635,Antibody,3
+XX,Alexa Fluor 660,Antibody,3
+XX,APC-Alexa 680,Antibody,2
+XX,APC-Cy5.5,Antibody,2
+XX,Brilliant Blue 630-P2,Antibody,4
+XX,Brilliant Blue 660-P2,Antibody,3
+XX,Calcein,Dye,unknown
+XX,Calcein AM,Dye,unknown
+XX,Calcein Blue,Dye,unknown
+XX,Calcein Blue AM,Dye,unknown
+XX,Calcein Deep Red,Dye,unknown
+XX,Calcein Deep Red AM,Dye,unknown
+XX,Calcein Green,Dye,unknown
+XX,Calcein Orange,Dye,unknown
+XX,Calcein Red,Dye,unknown
+XX,Calcein Red AM,Dye,unknown
+XX,Calcein Red-Orange AM,Dye,unknown
+XX,Calcein Violet AM,Dye,unknown
+XX,Calcium Green,Dye,unknown
+XX,Calcium Orange,Dye,unknown
+XX,CellTrace Oregon Green,Dye,unknown
+XX,cFluor B520,Antibody,2
+XX,cFluor B675,Antibody,2
+XX,cFluor BYG750,Antibody,4
+XX,cFluor R685,Antibody,3
+XX,cFluor UV395,Antibody,1
+XX,cFluor UV440,Antibody,1
+XX,cFluor UV515,Antibody,1
+XX,cFluor UV570,Antibody,2
+XX,cFluor UV610,Antibody,2
+XX,cFluor UV670,Antibody,2
+XX,cFluor UV745,Antibody,3
+XX,cFluor V435,Antibody,3
+XX,cFluor V475,Antibody,2
+XX,cFluor V505,Antibody,1
+XX,cFluor V515,Antibody,1
+XX,cFluor V570,Antibody,2
+XX,cFluor V605,Antibody,1
+XX,cFluor V715,Antibody,1
+XX,cFluor V755,Antibody,2
+XX,cFluor V780,Antibody,3
+XX,cFluor YG600,Antibody,1
+XX,DiI,Dye,unknown
+XX,DiO,Dye,unknown
+XX,DiR,Dye,unknown
+XX,dTomato,Fluorescent Protein,unknown
+XX,DyLight 405LS,Antibody,1
+XX,DyLight 750,Antibody,1
+XX,eBFP,Fluorescent Protein,unknown
+XX,eFluor 710,Dye,1
+XX,eYFP,Fluorescent Protein,unknown
+XX,Fluorescein,,1
+XX,FVS440UV,Dye,unknown
+XX,iRFP,Fluorescent Protein,unknown
+XX,MitoTracker CMXRos Red,Dye,unknown
+XX,MitoTracker Deep Red,Dye,unknown
+XX,MitoTracker Red,Dye,unknown
+XX,mScarlet,Fluorescent Protein,unknown
+XX,OFP,Fluorescent Protein,unknown
+XX,Pacific Green,Antibody,1
+XX,PE-Alexa 647,Antibody,3
+XX,PE-Alexa 750,Antibody,4
+XX,PE-DyLight 594,Antibody,4
+XX,PerCP-Fire 806,Antibody,3
+XX,Qdot 525,Antibody,2
+XX,Qdot 545,Antibody,2
+XX,Qdot 565,Antibody,3
+XX,Qdot 585,Antibody,3
+XX,Qdot 625,Antibody,4
+XX,RealBlue 545,Antibody,2
+XX,RealBlue 575,Antibody,2
+XX,RealBlue 613,Antibody,5
+XX,RealRed 688,Antibody,5
+XX,RealViolet 544,Antibody,2
+XX,RealYellow 586,Antibody,4
+XX,RealYellow 610,Antibody,4
+XX,RealYellow 655,Antibody,5
+XX,RealYellow 703,Antibody,5
+XX,RealYellow 743,Antibody,4
+XX,Spark Blue 488,Antibody,unknown
+XX,Spark Blue 515,Antibody,2
+XX,Spark Blue 574,Antibody,1
+XX,Spark NIR 685,Antibody,2
+XX,Spark Violet 423,Antibody,2
+XX,Spark Violet 538,Antibody,1
+XX,Spark YG 581,Antibody,2
+XX,Spark YG 593,Antibody,2
+XX,SuperNova v428,Fluorescent Protein,5
+XX,SuperNova v605,Fluorescent Protein,2
+XX,SuperNova v786,Fluorescent Protein,2
+XX,Sytox Blue,Dye,unknown
+XX,Sytox Red,Dye,unknown
+XX,TagBFP,Fluorescent Protein,unknown
+XX,TagRFP,Fluorescent Protein,unknown
+XX,Vio 488,Antibody,1
+XX,Vio Bright 515,Antibody,2
+XX,Vio Bright R667,Antibody,5
+XX,Vio Bright R720,Antibody,3
+XX,Vio Bright V423,Antibody,5
+XX,Vio Bright V646,Antibody,2
+XX,Vio Bright V710,Antibody,3
+XX,Vio R667,Antibody,4
+XX,Vio R720,Antibody,2
