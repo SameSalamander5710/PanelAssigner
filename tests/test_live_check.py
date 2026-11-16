@@ -110,8 +110,8 @@ class _Worker:
     async def search(self, index, bound):
         return await self._call("search", "1.5\n{}", SEARCH)
 
-    async def suggest(self, panel, n):
-        return await self._call("suggest", json.dumps({"ok": True, "panel": panel, "n": n}), 0.01)
+    async def suggest(self, panel, n, exclude=""):
+        return await self._call("suggest", json.dumps({"ok": True, "panel": panel, "n": n, "exclude": exclude}), 0.01)
 
     async def finalize(self, results):
         return await self._call("finalize", json.dumps({
@@ -348,6 +348,15 @@ class LiveCheckTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0.2)
         self.assertEqual(json.loads(self.document.getElementById("suggest-data").textContent)["panel"], 2)
         self.assertFalse(self.document.getElementById("suggest-run").disabled)
+
+    async def test_suggest_passes_the_leave_out_box_to_the_worker(self):
+        self.document.getElementById("suggest-panel").textContent = "1"
+        self.document.getElementById("suggest-n").value = "2"
+        self.document.getElementById("suggest-exclude").value = "BV*\nQdot 605"
+        self.js("suggest")
+        await asyncio.sleep(0.2)
+        answer = json.loads(self.document.getElementById("suggest-data").textContent)
+        self.assertEqual(answer["exclude"], "BV*\nQdot 605")
 
     async def test_every_handler_returns_at_once(self):
         for handler in ("input_changed", "backbone_changed", "require_mapped_changed"):

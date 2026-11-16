@@ -1173,6 +1173,94 @@ def search_subtree(data: dict, task: tuple, bound: float = INF):
 MAX_SUGGESTED = 5  # adding more than this at once gets slow and is rarely useful
 
 
+def parse_exclusions(text: str) -> List[str]:
+    """Split the "leave out of the suggestions" box into patterns.
+
+    Entries are separated by new lines, commas, semicolons or tabs. A repeated
+    entry (same name apart from case and spacing) is kept once. The page does
+    the same in `parseExclusions` (index.html).
+    """
+    patterns: List[str] = []
+    seen = set()
+    for entry in re.split(r"[\n\r,;\t]+", text or ""):
+        entry = entry.strip()
+        key = normalize_fluorophore(entry)
+        if key and key not in seen:
+            seen.add(key)
+            patterns.append(entry)
+    return patterns
+
+
+@lru_cache(maxsize=8)
+def _compile_reverse_aliases(rules: Tuple[Tuple[str, str], ...]):
+    """[(regex for a canonical form, alias template)]: the alias rules read backwards."""
+    reverse = []
+    for alias, canonical in rules:
+        before, has_number, after = canonical.partition("{n}")
+        pattern = re.escape(before)
+        if has_number:
+            pattern += r"(?P<n>\d+(?:\.\d+)?[A-Za-z]?)" + re.escape(after)
+        reverse.append((re.compile(_TOKEN_START + pattern + _TOKEN_END, re.IGNORECASE), alias))
+    return reverse
+
+
+def _spellings(name: str, rules: Tuple[Tuple[str, str], ...]) -> set:
+    """`name` and its other spellings: each alias rule applied backwards once.
+
+    "BV421" also reads "Brilliant Violet 421" and "BV 421"; "PE-Cy7" also reads
+    "PE-Cyanine 7".
+    """
+    forms = {name}
+    for regex, alias in _compile_reverse_aliases(rules):
+        other = regex.sub(lambda m: alias.replace("{n}", m.groupdict().get("n") or ""), name)
+        forms.add(other)
+    return forms
+
+
+def _exclusion_regexes(pattern: str, aliases: Optional[Sequence[Tuple[str, str]]]):
+    """Regexes for one exclusion pattern, to match against normalized names.
+
+    `*` stands for any characters (also none), anywhere. The pattern is tried as
+    typed and in its canonical spelling, so "AF700" and "Alexa Fluor 700" mean
+    the same, and "Brilliant Violet 4*" reaches "BV4*".
+    """
+    forms = {pattern, canonicalize_fluorophore(pattern, aliases)}
+    regexes = []
+    for form in forms:
+        key = normalize_fluorophore(form)
+        if key:
+            regexes.append(re.compile(".*".join(re.escape(part) for part in key.split("*"))))
+    return regexes
+
+
+def _apply_exclusions(
+    candidates: List[str],
+    exclude: Sequence[str],
+    aliases: Optional[Sequence[Tuple[str, str]]],
+):
+    """Drop the candidates that an exclusion pattern matches.
+
+    A pattern matches a candidate's canonical name or any of its alias
+    spellings, ignoring case, spaces and slashes. Returns (kept candidates,
+    [{"pattern", "removed", "names"}]) where `names` are the candidates that
+    pattern matched and `removed` is how many (a pattern that matches nothing
+    is probably misspelt; the page shows the names so that a wildcard that
+    reaches further than meant can be seen).
+    """
+    rules = tuple(map(tuple, aliases)) if aliases else ()
+    matchers = [(p, _exclusion_regexes(p, aliases)) for p in exclude]
+    matched: Dict[str, List[str]] = {p: [] for p in exclude}
+    kept = []
+    for name in candidates:
+        forms = {normalize_fluorophore(form) for form in _spellings(name, rules)}
+        hits = [p for p, regexes in matchers if any(r.fullmatch(f) for r in regexes for f in forms)]
+        for p in hits:
+            matched[p].append(name)
+        if not hits:
+            kept.append(name)
+    return kept, [{"pattern": p, "removed": len(matched[p]), "names": matched[p]} for p in exclude]
+
+
 def _suggestion_pool(
     sim_df: SimilarityMatrix,
     sim_names: Optional[Sequence[str]],
@@ -1183,6 +1271,7 @@ def _suggestion_pool(
     allowed_types: Sequence[str] = SUGGESTED_TYPES,
     canonical: bool = False,
     metric: str = DEFAULT_METRIC,
+    exclude: Optional[Sequence[str]] = None,
 ) -> dict:
     """Prepare the eligible additions shared by the suggestion functions.
 
@@ -1194,6 +1283,10 @@ def _suggestion_pool(
     candidates to those whose Type is in `allowed_types`. A candidate with no
     Type listed stays eligible, so a missing entry never hides it silently.
     The panel itself is never filtered.
+
+    `exclude` lists fluorophores to leave out (e.g. not for sale): names, with
+    `*` as a wildcard ("BV*"); see `_apply_exclusions`. They are only removed
+    from the candidates; the panel itself is never filtered.
 
     `canonical=True` says that the reference data and `types` come from
     `prepare_reference`.
@@ -1217,6 +1310,8 @@ def _suggestion_pool(
             if normalize_fluorophore(c) not in types  # no Type listed: keep
             or types[normalize_fluorophore(c)] in allowed
         ]
+    exclude = parse_exclusions("\n".join(exclude or ()))
+    candidates, excluded = _apply_exclusions(candidates, exclude, aliases)
     base, mapped_index, substitutions, _ = _prepare_similarity(
         sim_df, sim_names, panel + candidates, det_map
     )
@@ -1255,6 +1350,7 @@ def _suggestion_pool(
         "base_complexity": base_complexity,
         "pool": [name for _, name in singles],
         "single_complexity": [c for c, _ in singles],
+        "excluded": excluded,
     }
 
 
@@ -1267,6 +1363,7 @@ def eligible_fluorophore_count(
     types: Optional[Dict[str, str]] = None,
     allowed_types: Sequence[str] = SUGGESTED_TYPES,
     canonical: bool = False,
+    exclude: Optional[Sequence[str]] = None,
 ) -> int:
     """How many reference fluorophores could still be added to a panel.
 
@@ -1276,7 +1373,7 @@ def eligible_fluorophore_count(
     try:  # which candidates are finite does not depend on the metric
         return len(_suggestion_pool(
             sim_df, sim_names, det_map, panel_fluors, aliases, types, allowed_types,
-            canonical,
+            canonical, exclude=exclude,
         )["pool"])
     except ValueError:
         return 0
@@ -1294,29 +1391,33 @@ def suggest_additions(
     allowed_types: Sequence[str] = SUGGESTED_TYPES,
     canonical: bool = False,
     metric: str = DEFAULT_METRIC,
+    exclude: Optional[Sequence[str]] = None,
 ) -> dict:
     """Best sets of `n` extra fluorophores to add to an existing panel.
 
     Candidates are all fluorophores of the reference matrix that the panel
     does not use yet (only those of an allowed Type, when `types` is given,
     so dyes and fluorescent proteins are not suggested as antibody labels).
-    Sets are ranked by the `metric` score of the panel plus the new
+    `exclude` leaves fluorophores out of the candidates (names, `*` as a
+    wildcard, matching alias spellings too); the sets are then the best of
+    what is left. Sets are ranked by the `metric` score of the panel plus the new
     fluorophores. This is exact: a partial set whose lower bound on the final
     score (see `_Metric.lower_bound`) is already worse than the current top_n
     is skipped. (The best n+1 set does not always contain the best n set, so
     adding one at a time would not be exact.)
 
-    Returns {"metric", "base_complexity", "candidates", "combinations", "suggestions":
-    [{"fluors", "matrix_complexity", "values"}]}, where `candidates` is the
-    number of eligible fluorophores, `combinations` is how many `n`-sized sets
-    they form, and `values` is the similarity matrix of the panel followed by
-    the new fluorophores.
+    Returns {"metric", "base_complexity", "candidates", "combinations", "excluded",
+    "suggestions": [{"fluors", "matrix_complexity", "values"}]}, where `candidates`
+    is the number of eligible fluorophores (after the exclusions), `combinations`
+    is how many `n`-sized sets they form, `excluded` is [{"pattern", "removed", "names"}]
+    for each exclusion, and `values` is the similarity matrix of the panel
+    followed by the new fluorophores.
     """
     if not 1 <= n <= MAX_SUGGESTED:
         raise ValueError(f"Choose between 1 and {MAX_SUGGESTED} fluorophores to add.")
     context = _suggestion_pool(
         sim_df, sim_names, det_map, panel_fluors, aliases, types, allowed_types,
-        canonical, metric,
+        canonical, metric, exclude,
     )
     panel = context["panel"]
     base = context["base"]
@@ -1326,10 +1427,9 @@ def suggest_additions(
     single_complexity = context["single_complexity"]
 
     if len(pool) < n:
-        raise ValueError(
-            f"Only {len(pool)} suitable fluorophores are left in the reference "
-            f"matrix to add."
-        )
+        where = ("after leaving out the excluded ones" if context["excluded"]
+                 else "in the reference matrix to add")
+        raise ValueError(f"Only {len(pool)} suitable fluorophores are left {where}.")
 
     found: List[Tuple[float, Tuple[str, ...]]] = []
     builder = _SetComplexity(context["M"], range(len(panel)), n, metric)
@@ -1379,6 +1479,7 @@ def suggest_additions(
         "base_complexity": base_complexity,
         "candidates": len(pool),
         "combinations": math.comb(len(pool), n),
+        "excluded": context["excluded"],
         "suggestions": suggestions,
     }
 

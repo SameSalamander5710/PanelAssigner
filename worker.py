@@ -383,13 +383,16 @@ def finalize(results_json):
     })
 
 
-def suggest(panel_no, n=1):
+def suggest(panel_no, n=1, exclude=""):
     """Best `n` fluorophores to add to result panel `panel_no` (1-based).
 
-    Needs finalize() to have run on this worker. The names go back as JSON and
-    the page inserts them as text.
+    `exclude` is the text of the "leave out" box: fluorophores that must not be
+    suggested, one per line or comma separated, `*` as a wildcard (see
+    Panel_optimized.parse_exclusions). Needs finalize() to have run on this
+    worker. The names go back as JSON and the page inserts them as text.
     """
     try:
+        patterns = P.parse_exclusions(exclude)
         panels = STATE.get("panel_labels")
         if not panels:
             raise ValueError("Compute panels first.")
@@ -400,9 +403,12 @@ def suggest(panel_no, n=1):
             REF_SIM, REF_NAMES, REF_DET, panels[panel_no - 1], n, top_n=5,
             aliases=ALIASES, types=REF_TYPES, canonical=True,
             metric=STATE["metric"],  # the metric the panels were ranked by
+            exclude=patterns,
         )
         return json.dumps({
             "ok": True, "panel": panel_no, "n": n,
+            "exclude": patterns,  # as applied; the page compares it with the box
+            "excluded": result["excluded"],  # [{"pattern", "removed"}] for each
             "metric_label": P.get_metric(STATE["metric"]).label,
             "base_score": result["base_complexity"],
             "candidates": result["candidates"],

@@ -57,7 +57,7 @@
     .setup { display: grid; gap: 1.25rem; grid-template-columns: minmax(0, 1fr); }
     .after { display: grid; gap: 1.25rem; grid-template-columns: minmax(0, 1fr); }
     @media (min-width: 1060px) { .setup { grid-template-columns: minmax(0, 1fr) 22rem; } }
-    @media (min-width: 1360px) { .after { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; } }
+    @media (min-width: 1360px) { .after { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); align-items: start; } }
     .card { min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); scroll-margin-top: 4.5rem; }
     .card-head { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .75rem; padding: .65rem 1rem; border-bottom: 1px solid var(--line); }
     .card-head h2 { margin: 0; font-size: 1.05rem; font-weight: 650; }
@@ -135,6 +135,7 @@
     .legend .substituted, .results-table .substituted { background: var(--substituted); }
     .legend .unmapped, .results-table .unmapped { background: var(--unmapped); }
     .legend .unassigned, .results-table .unassigned { background: var(--unassigned); }
+    .results-table .added { background: var(--added); }
     .legend .swatch.fixed { width: 0; border: none; border-left: 2px solid var(--fixed); }
     .legend .swatch.base { background: var(--base); }
     .legend .swatch.new { background: var(--added); }
@@ -192,8 +193,26 @@
     .suggest-section { display: flex; flex-direction: column; gap: .75rem; min-width: 0; padding-top: .75rem; border-top: 1px solid var(--line); }
     .suggest-title { font-weight: 650; }
     .suggest-rows { overflow-x: auto; }
-    .suggest-table tbody tr { cursor: pointer; }
-    .suggest-table tbody tr.selected td { background: var(--added); }
+    /* The suggestions table has one column per suggestion, like the results table; the
+       first column counts the added fluorophores. Click a column to show its matrix. */
+    .suggest-table { width: auto; min-width: 100%; }
+    .suggest-table thead th:nth-child(n+2), .suggest-table tbody td:nth-child(n+2), .suggest-table tfoot td { cursor: pointer; min-width: 7.5rem; }
+    .suggest-table .num { text-align: right; }
+    .suggest-table td.added { position: relative; padding-right: 1.8rem; }
+    /* Minus button on a suggested fluorophore: shown on hover and keyboard focus, always on touch screens. */
+    .suggest-table .exclude-btn { position: absolute; right: 3px; top: 50%; transform: translateY(-50%); display: grid; place-items: center; width: 1.2rem; height: 1.2rem; padding: 0; border: 1px solid var(--line-strong); border-radius: 50%; background: #fff; color: var(--danger); font: 700 .95rem/1 var(--sans); opacity: 0; cursor: pointer; }
+    .suggest-table td:hover .exclude-btn, .suggest-table .exclude-btn:focus-visible { opacity: 1; }
+    .suggest-table .exclude-btn:hover:not(:disabled) { border-color: var(--danger); background: var(--danger); color: #fff; }
+    @media (hover: none) { .suggest-table .exclude-btn { opacity: 1; } }
+    .suggest-table td.excluded .fl { color: var(--muted); text-decoration: line-through; }
+    .suggest-table td.excluded .exclude-btn { display: none; }
+    .suggest-exclude { display: flex; flex-direction: column; gap: .3rem; }
+    .suggest-exclude textarea { width: 100%; min-height: 4.6rem; resize: vertical; font: 13px/18px ui-monospace, monospace; padding: 4px 6px; border: 1px solid var(--line-strong); border-radius: 4px; background: #fff; color: var(--ink); }
+    .suggest-exclude .help { margin: 0; }
+    .exclude-note { margin: 0; font-size: .85rem; color: var(--muted); }
+    .exclude-note:empty { display: none; }
+    .exclude-note.warn { color: #7a5200; }
+    .suggest-stale { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .75rem; border: 1px solid #d9a400; border-left-width: 4px; border-radius: 4px; background: #fff8e1; padding: .4rem .75rem; font-size: .88rem; }
     .pick-row { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem 1rem; }
     @media (max-width: 700px) {
       .meta { text-align: left; }
@@ -356,6 +375,12 @@ After Compute, the same metric is used to rank suggested additions.</span></span
           <h2 id="title-extend">Extend: suggest additional fluorophores to add to the panel</h2>
         </div>
         <div class="card-body">
+          <div class="suggest-exclude">
+            <label for="suggest-exclude">Leave out of the suggestions (optional)</label>
+            <textarea id="suggest-exclude" rows="3" spellcheck="false" placeholder="BV*&#10;PE-Cy7&#10;Qdot 605"></textarea>
+            <p class="help">Fluorophores you cannot get or do not want, one per line or separated by commas. * stands for any characters: BV* leaves out every BV dye.</p>
+            <p id="suggest-exclude-note" class="exclude-note" role="status"></p>
+          </div>
           <div class="suggest-controls">
             <div class="suggest-text">
               <span class="suggest-sentence">Show <input id="suggest-n" type="number" value="1" min="1" max="5" title="Up to 5"> additional fluorophore(s) from a pool of <span id="suggest-pool">?</span> fluorophores to add to panel <b id="suggest-panel">1</b></span>
@@ -367,6 +392,11 @@ After Compute, the same metric is used to rank suggested additions.</span></span
           </div>
           <div id="suggest-section" class="suggest-section" hidden>
             <div id="suggest-title" class="suggest-title"></div>
+            <p class="help">Click a column to show its similarity matrix.</p>
+            <div id="suggest-stale" class="suggest-stale" role="status" hidden>
+              <span>The leave-out list has changed since these suggestions were made.</span>
+              <button id="suggest-again" class="small" type="button">Suggest again</button>
+            </div>
             <div class="box"><div id="suggest-rows" class="suggest-rows"></div></div>
             <div class="pick-row">
               <div class="selector">
@@ -650,6 +680,11 @@ After Compute, the same metric is used to rank suggested additions.</span></span
       const sCount = document.getElementById('suggest-count');
       const sCi = document.getElementById('suggest-ci');
       const sScroll = document.getElementById('suggest-scroll');
+      const sExclude = document.getElementById('suggest-exclude');
+      const sExcludeNote = document.getElementById('suggest-exclude-note');
+      const sStale = document.getElementById('suggest-stale');
+      const suggestStyle = document.createElement('style');
+      document.head.appendChild(suggestStyle);
       const SIM_WARN = 0.9; // pairs at or above this similarity get flagged
       let panels = [];
       let freeTotal = null; // antibodies of the main box, as counted by "Fit at most"
@@ -829,14 +864,96 @@ After Compute, the same metric is used to rank suggested additions.</span></span
         updateSuggestPool();
         sSection.hidden = suggestion === null || suggestion.panel !== n;
         scroll.appendChild(buildTable(panel.fluors, panel.values, null));
+        updateExclusionState();
+      }
+
+      // The leave-out box. These mirror Panel_optimized.parse_exclusions (and normalize_fluorophore),
+      // which the worker uses: entries are split on new lines, commas, semicolons and tabs, and
+      // an entry listed again (same name apart from case and spacing) counts once.
+      function nameKey(name) { return name.trim().replace(/\//g, '-').replace(/\s+/g, '').toLowerCase(); }
+      function parseExclusions(text) {
+        const seen = new Set();
+        const list = [];
+        text.split(/[\n\r,;\t]+/).forEach(function (entry) {
+          entry = entry.trim();
+          const key = nameKey(entry);
+          if (key && !seen.has(key)) { seen.add(key); list.push(entry); }
+        });
+        return list;
+      }
+      function sameList(a, b) {
+        return a.length === b.length && a.every(function (entry, i) { return nameKey(entry) === nameKey(b[i]); });
+      }
+
+      // Strike through the suggested fluorophores that the box lists by name.
+      function markExcluded() {
+        const listed = new Set(parseExclusions(sExclude.value).map(nameKey));
+        Array.prototype.forEach.call(sRows.querySelectorAll('td.added'), function (cell) {
+          cell.classList.toggle('excluded', listed.has(nameKey(cell.dataset.fluor)));
+        });
+      }
+
+      // What the box says about the suggestions on screen: what the last Suggest left out (and
+      // anything that matched nothing), or that the list has changed since and needs Suggest again.
+      function updateExclusionState() {
+        markExcluded();
+        const current = parseExclusions(sExclude.value);
+        const shown = suggestion !== null && suggestion.panel === parseInt(input.value, 10);
+        const applied = shown && sameList(suggestion.exclude || [], current);
+        sStale.hidden = !shown || applied;
+        sExcludeNote.classList.remove('warn');
+        sExcludeNote.textContent = '';
+        if (applied && current.length) {
+          const left = suggestion.excluded.filter(function (e) { return e.removed > 0; });
+          const none = suggestion.excluded.filter(function (e) { return e.removed === 0; });
+          const say = function (text) { sExcludeNote.appendChild(document.createTextNode(text)); };
+          if (left.length) {
+            say('Left out: ');
+            left.forEach(function (e, i) {
+              // Name what a pattern took, so that a wildcard that reaches further than meant shows.
+              const span = document.createElement('span');
+              span.title = e.names.join(', ');
+              const shortList = e.names.slice(0, 4).join(', ') + (e.names.length > 4 ? ', +' + (e.names.length - 4) + ' more' : '');
+              const plain = e.names.length === 1 && nameKey(e.names[0]) === nameKey(e.pattern);
+              span.textContent = plain ? e.pattern : e.pattern + ' \u2192 ' + shortList;
+              if (i) say('; ');
+              sExcludeNote.appendChild(span);
+            });
+            say('.');
+          }
+          if (none.length) {
+            say((left.length ? ' ' : '') + 'No fluorophore in the pool matches ' +
+              none.map(function (e) { return e.pattern; }).join(', ') +
+              '. Check the spelling; it may also be in the panel already.');
+            sExcludeNote.classList.add('warn');
+          }
+        } else if (!shown && current.length) {  // with suggestions on screen the bar above them says it
+          sExcludeNote.textContent = 'Applied when you press Suggest.';
+        }
+      }
+
+      function addExclusion(name) {
+        if (parseExclusions(sExclude.value).some(function (entry) { return nameKey(entry) === nameKey(name); })) return;
+        const text = sExclude.value.replace(/\s+$/, '');
+        sExclude.value = (text ? text + '\n' : '') + name;
+        sExclude.scrollTop = sExclude.scrollHeight;
+        updateExclusionState();
+      }
+
+      // Mark the selected suggestion's column. Like markSelected, this is a style sheet.
+      function markSuggestion(n) {
+        const table = '#suggest-rows .suggest-table ';
+        suggestStyle.textContent = n >= 1 ? [
+          table + 'thead th:nth-child(' + (n + 1) + ') { background: #2d6a4f; color: #fff; }',
+          table + 'tbody td:nth-child(' + (n + 1) + '), ' + table + 'tfoot td:nth-child(' + (n + 1) + ') ' +
+            '{ box-shadow: inset 2px 0 0 #2d6a4f, inset -2px 0 0 #2d6a4f; }'
+        ].join('\n') : '';
       }
 
       function showSuggestion(n) {
         const item = suggestion && suggestion.suggestions[n - 1];
         sScroll.textContent = '';
-        Array.prototype.forEach.call(sRows.querySelectorAll('tbody tr'), function (row, i) {
-          row.classList.toggle('selected', i === n - 1);
-        });
+        markSuggestion(item ? n : 0);
         if (!item) return;
         const base = panels[suggestion.panel - 1];
         const added = item.fluors.map(function (name) {
@@ -847,6 +964,62 @@ After Compute, the same metric is used to rank suggested additions.</span></span
         sFixedKey.hidden = !hasFixedEdge(base.fluors);
         sCi.textContent = (suggestion.metric_label || metricLabel) + ': ' + item.score.toFixed(4) + ' (panel ' + suggestion.panel + ': ' + suggestion.base_score.toFixed(4) + ')';
         sScroll.appendChild(buildTable(base.fluors.concat(added), item.values, groups));
+      }
+
+      // The suggestions as a table with a column per suggestion: a row per added fluorophore,
+      // then the score and its change from the panel (A- and D-optimality are averages, so
+      // adding a fluorophore can lower them).
+      function buildSuggestTable() {
+        const list = suggestion.suggestions;
+        const label = suggestion.metric_label || metricLabel;
+        const table = document.createElement('table');
+        table.className = 'results-table suggest-table';
+        function labelled(row, text, tag, className) {
+          const cell = document.createElement(tag);
+          cell.textContent = text;
+          if (className) cell.className = className;
+          row.appendChild(cell);
+          return cell;
+        }
+        const head = table.createTHead().insertRow();
+        labelled(head, 'Added', 'th', 'num');
+        list.forEach(function (item, i) { labelled(head, 'Suggestion ' + (i + 1), 'th'); });
+
+        const body = table.createTBody();
+        for (let r = 0; r < list[0].fluors.length; r += 1) {
+          const row = body.insertRow();
+          labelled(row, String(r + 1), 'td', 'num');
+          list.forEach(function (item) {
+            const name = item.fluors[r];
+            const cell = labelled(row, '', 'td', 'added');
+            cell.dataset.fluor = name;
+            const text = document.createElement('span');
+            text.className = 'fl';
+            text.textContent = name;
+            const minus = document.createElement('button');
+            minus.type = 'button';
+            minus.className = 'exclude-btn';
+            minus.textContent = '\u2212';
+            minus.title = 'Leave ' + name + ' out of the suggestions';
+            minus.setAttribute('aria-label', minus.title);
+            cell.appendChild(text);
+            cell.appendChild(minus);
+          });
+        }
+
+        const foot = table.createTFoot();
+        const scoreRow = foot.insertRow();
+        scoreRow.className = 'ci-row';
+        labelled(scoreRow, label, 'th');
+        list.forEach(function (item) { labelled(scoreRow, item.score.toFixed(4), 'td', 'num'); });
+        const changeRow = foot.insertRow();
+        changeRow.className = 'ci-row';
+        labelled(changeRow, 'Change', 'th');
+        list.forEach(function (item) {
+          const change = item.score - suggestion.base_score;
+          labelled(changeRow, (change < 0 ? '\u2212' : '+') + Math.abs(change).toFixed(4), 'td', 'num');
+        });
+        return table;
       }
 
       function loadSuggestions() {
@@ -861,35 +1034,17 @@ After Compute, the same metric is used to rank suggested additions.</span></span
         sSection.hidden = suggestion === null || suggestion.panel !== parseInt(input.value, 10);
         sRows.textContent = '';
         sScroll.textContent = '';
+        markSuggestion(0);
         updateSuggestPool();
+        updateExclusionState();
         if (!suggestion) return;
 
+        const left = (suggestion.excluded || []).reduce(function (sum, e) { return sum + e.removed; }, 0);
         sTitle.textContent = 'Suggested additions to panel ' + suggestion.panel + ': Best ' +
-          suggestion.suggestions.length + ' of ' + suggestion.combinations + ' combinations';
-        const table = document.createElement('table');
-        table.className = 'results-table suggest-table';
-        const head = table.createTHead().insertRow();
-        ['#', 'Added fluorophores', suggestion.metric_label || metricLabel, 'Change'].forEach(function (text, i) {
-          const th = document.createElement('th');
-          th.textContent = text;
-          if (i !== 1) th.className = 'num';
-          head.appendChild(th);
-        });
-        const body = table.createTBody();
-        suggestion.suggestions.forEach(function (item, i) {
-          const row = body.insertRow();
-          // A- and D-optimality are averages, so adding a fluorophore can lower them.
-          const change = item.score - suggestion.base_score;
-          const cells = [String(i + 1), item.fluors.join(', '), item.score.toFixed(4),
-                         (change < 0 ? '\u2212' : '+') + Math.abs(change).toFixed(4)];
-          cells.forEach(function (text, k) {
-            const td = row.insertCell();
-            td.textContent = text;
-            if (k !== 1) td.className = 'num';
-          });
-          row.addEventListener('click', function () { sPick.value = i + 1; showSuggestion(i + 1); });
-        });
-        sRows.appendChild(table);
+          suggestion.suggestions.length + ' of ' + suggestion.combinations + ' combinations' +
+          (left ? ' (' + left + ' fluorophore' + (left === 1 ? '' : 's') + ' left out)' : '');
+        sRows.appendChild(buildSuggestTable());
+        markExcluded();
         sCount.textContent = suggestion.suggestions.length;
         sPick.max = suggestion.suggestions.length;
         sPick.value = 1;
@@ -960,6 +1115,28 @@ After Compute, the same metric is used to rank suggested additions.</span></span
         if (!(n >= 1)) n = 1;
         if (n > 5) n = 5;
         suggestInput.value = n;
+      });
+      // Clicking a column of the suggestions table shows its matrix, like the pick box does;
+      // clicking a minus adds that fluorophore to the leave-out box.
+      sRows.addEventListener('click', function (event) {
+        if (!suggestion) return;
+        const minus = event.target.closest && event.target.closest('.exclude-btn');
+        if (minus) {
+          addExclusion(minus.parentElement.dataset.fluor);
+          return;
+        }
+        const cell = event.target.closest && event.target.closest('th, td');
+        if (!cell || !sRows.contains(cell)) return;
+        const selection = window.getSelection();
+        if (selection && selection.toString()) return; // text is being selected to copy
+        const n = cell.cellIndex; // column 0 is the row number; suggestion k is column k
+        if (n < 1 || n > suggestion.suggestions.length) return;
+        sPick.value = n;
+        showSuggestion(n);
+      });
+      sExclude.addEventListener('input', updateExclusionState);
+      document.getElementById('suggest-again').addEventListener('click', function () {
+        document.getElementById('suggest-run').click();
       });
       new MutationObserver(loadSuggestions).observe(sData, { childList: true });
       new MutationObserver(load).observe(data, { childList: true });

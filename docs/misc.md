@@ -91,6 +91,31 @@ A fluorophore you put in your own panel is always used, whatever its Type.
   (the optional input) from the ones the search chose, as a green line
   separates suggested additions. The purple line only appears when a panel
   has fixed fluorophores.
+- Suggested additions are a table with a column per suggestion and a row per
+  added fluorophore, then the score and its change from the panel. Clicking a
+  column (or using the arrows and the number box) shows that suggestion's
+  matrix, the same way the results table selects a panel.
+- Leaving fluorophores out of the suggestions: the box above the Suggest
+  button takes one name per line, or comma, semicolon or tab separated
+  (`parse_exclusions`; `parseExclusions` in `index.html` does the same). They
+  are only taken out of the pool of candidates, so the suggested sets are the
+  best of what is left, as if those fluorophores were not in the reference
+  matrix (`exclude=` of `suggest_additions`). Fluorophores of the panel itself
+  are never affected. Names ignore case, spaces and slashes. `*` stands for any
+  characters, anywhere: `BV*`, `PE-*`, `*605`. A pattern is compared with
+  every spelling of a fluorophore: its canonical name and what each alias
+  rule gives for it, so `BV*` and `Brilliant Violet*` both leave out BV421,
+  and `AF700` leaves out Alexa Fluor 700. The flip side is that a pattern can
+  reach a fluorophore through an unusual spelling (`R*` also takes the "R-PE-"
+  forms of the PE tandems). After Suggest, the note under the box names what
+  each pattern removed (hover for the full list) and warns about a pattern
+  that matched nothing, which is usually a typo.
+- A minus appears on a suggested fluorophore when the pointer is on it (when it
+  has keyboard focus, and always on touch screens). Clicking it adds the
+  name to the box; it is struck through in the table, and a bar offers "Suggest
+  again", because the suggestions on screen were made without it. Editing the
+  box has the same effect. The box keeps its text when the panels are
+  computed again or another panel is selected.
 - Clicking a panel column in the results table selects that panel, the same
   as typing its number in the matrix panel box. The selected column is marked
   with a style sheet, so the table that Copy takes is unchanged. Clicks that

@@ -261,12 +261,13 @@ def suggest(event):
         suggest_status.innerText = "Enter how many fluorophores to add (1-5)."
         suggest_btn.disabled = False
         return
+    exclude = document.getElementById("suggest-exclude").value  # fluorophores to leave out
     suggest_status.innerText = "Searching..."
-    spawn(run_suggest(panel_no, n))
+    spawn(run_suggest(panel_no, n, exclude))
 
 
-async def run_suggest(panel_no, n):
-    raw = await call(0, pool[0].suggest, panel_no, n)  # same worker that holds the panels
+async def run_suggest(panel_no, n, exclude):
+    raw = await call(0, pool[0].suggest, panel_no, n, exclude)  # same worker that holds the panels
     res = json.loads(raw)
     if res["ok"]:
         suggest_status.innerText = ""

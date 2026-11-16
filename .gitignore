@@ -29,4 +29,5 @@ Thumbs.db
 # Project
 
 Data/
+temp/
 opencode.json

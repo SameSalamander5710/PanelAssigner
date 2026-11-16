@@ -14,7 +14,8 @@ The tool is hosted online at https://samesalamander5710.github.io/PanelAssigner/
 - Add fluorophores to penalize overlap with (for when you want to add onto an existing panel, avoid autofluorescence, or stain labelled/tagged cells)
 - Detector-based substitution for fluorophores not in the reference matrix
 - Similarity matrix plot of any result panel (WebUI only), below the results
-- Suggests the best 1-5 extra fluorophores to add to a chosen result panel (WebUI; `suggest_additions` in Python), ranked by the resulting complexity
+- Suggests the best 1-5 extra fluorophores to add to a chosen result panel (WebUI; `suggest_additions` in Python), ranked by the resulting complexity, shown as a table with a column per suggestion
+- Fluorophores can be left out of the suggestions (not for sale, or just not wanted): type them in the WebUI, with `*` as a wildcard (`BV*`), or click the minus that appears on a suggested fluorophore (`exclude=` in Python)
 
 ## Input Format
 

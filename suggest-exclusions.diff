@@ -1,0 +1,883 @@
+diff --git a/Panel_optimized.py b/Panel_optimized.py
+index 3f894d9..a47d82f 100644
+--- a/Panel_optimized.py
++++ b/Panel_optimized.py
+@@ -1173,6 +1173,94 @@ def search_subtree(data: dict, task: tuple, bound: float = INF):
+ MAX_SUGGESTED = 5  # adding more than this at once gets slow and is rarely useful
+ 
+ 
++def parse_exclusions(text: str) -> List[str]:
++    """Split the "leave out of the suggestions" box into patterns.
++
++    Entries are separated by new lines, commas, semicolons or tabs. A repeated
++    entry (same name apart from case and spacing) is kept once. The page does
++    the same in `parseExclusions` (index.html).
++    """
++    patterns: List[str] = []
++    seen = set()
++    for entry in re.split(r"[\n\r,;\t]+", text or ""):
++        entry = entry.strip()
++        key = normalize_fluorophore(entry)
++        if key and key not in seen:
++            seen.add(key)
++            patterns.append(entry)
++    return patterns
++
++
++@lru_cache(maxsize=8)
++def _compile_reverse_aliases(rules: Tuple[Tuple[str, str], ...]):
++    """[(regex for a canonical form, alias template)]: the alias rules read backwards."""
++    reverse = []
++    for alias, canonical in rules:
++        before, has_number, after = canonical.partition("{n}")
++        pattern = re.escape(before)
++        if has_number:
++            pattern += r"(?P<n>\d+(?:\.\d+)?[A-Za-z]?)" + re.escape(after)
++        reverse.append((re.compile(_TOKEN_START + pattern + _TOKEN_END, re.IGNORECASE), alias))
++    return reverse
++
++
++def _spellings(name: str, rules: Tuple[Tuple[str, str], ...]) -> set:
++    """`name` and its other spellings: each alias rule applied backwards once.
++
++    "BV421" also reads "Brilliant Violet 421" and "BV 421"; "PE-Cy7" also reads
++    "PE-Cyanine 7".
++    """
++    forms = {name}
++    for regex, alias in _compile_reverse_aliases(rules):
++        other = regex.sub(lambda m: alias.replace("{n}", m.groupdict().get("n") or ""), name)
++        forms.add(other)
++    return forms
++
++
++def _exclusion_regexes(pattern: str, aliases: Optional[Sequence[Tuple[str, str]]]):
++    """Regexes for one exclusion pattern, to match against normalized names.
++
++    `*` stands for any characters (also none), anywhere. The pattern is tried as
++    typed and in its canonical spelling, so "AF700" and "Alexa Fluor 700" mean
++    the same, and "Brilliant Violet 4*" reaches "BV4*".
++    """
++    forms = {pattern, canonicalize_fluorophore(pattern, aliases)}
++    regexes = []
++    for form in forms:
++        key = normalize_fluorophore(form)
++        if key:
++            regexes.append(re.compile(".*".join(re.escape(part) for part in key.split("*"))))
++    return regexes
++
++
++def _apply_exclusions(
++    candidates: List[str],
++    exclude: Sequence[str],
++    aliases: Optional[Sequence[Tuple[str, str]]],
++):
++    """Drop the candidates that an exclusion pattern matches.
++
++    A pattern matches a candidate's canonical name or any of its alias
++    spellings, ignoring case, spaces and slashes. Returns (kept candidates,
++    [{"pattern", "removed", "names"}]) where `names` are the candidates that
++    pattern matched and `removed` is how many (a pattern that matches nothing
++    is probably misspelt; the page shows the names so that a wildcard that
++    reaches further than meant can be seen).
++    """
++    rules = tuple(map(tuple, aliases)) if aliases else ()
++    matchers = [(p, _exclusion_regexes(p, aliases)) for p in exclude]
++    matched: Dict[str, List[str]] = {p: [] for p in exclude}
++    kept = []
++    for name in candidates:
++        forms = {normalize_fluorophore(form) for form in _spellings(name, rules)}
++        hits = [p for p, regexes in matchers if any(r.fullmatch(f) for r in regexes for f in forms)]
++        for p in hits:
++            matched[p].append(name)
++        if not hits:
++            kept.append(name)
++    return kept, [{"pattern": p, "removed": len(matched[p]), "names": matched[p]} for p in exclude]
++
++
+ def _suggestion_pool(
+     sim_df: SimilarityMatrix,
+     sim_names: Optional[Sequence[str]],
+@@ -1183,6 +1271,7 @@ def _suggestion_pool(
+     allowed_types: Sequence[str] = SUGGESTED_TYPES,
+     canonical: bool = False,
+     metric: str = DEFAULT_METRIC,
++    exclude: Optional[Sequence[str]] = None,
+ ) -> dict:
+     """Prepare the eligible additions shared by the suggestion functions.
+ 
+@@ -1195,6 +1284,10 @@ def _suggestion_pool(
+     Type listed stays eligible, so a missing entry never hides it silently.
+     The panel itself is never filtered.
+ 
++    `exclude` lists fluorophores to leave out (e.g. not for sale): names, with
++    `*` as a wildcard ("BV*"); see `_apply_exclusions`. They are only removed
++    from the candidates; the panel itself is never filtered.
++
+     `canonical=True` says that the reference data and `types` come from
+     `prepare_reference`.
+     """
+@@ -1217,6 +1310,8 @@ def _suggestion_pool(
+             if normalize_fluorophore(c) not in types  # no Type listed: keep
+             or types[normalize_fluorophore(c)] in allowed
+         ]
++    exclude = parse_exclusions("\n".join(exclude or ()))
++    candidates, excluded = _apply_exclusions(candidates, exclude, aliases)
+     base, mapped_index, substitutions, _ = _prepare_similarity(
+         sim_df, sim_names, panel + candidates, det_map
+     )
+@@ -1255,6 +1350,7 @@ def _suggestion_pool(
+         "base_complexity": base_complexity,
+         "pool": [name for _, name in singles],
+         "single_complexity": [c for c, _ in singles],
++        "excluded": excluded,
+     }
+ 
+ 
+@@ -1267,6 +1363,7 @@ def eligible_fluorophore_count(
+     types: Optional[Dict[str, str]] = None,
+     allowed_types: Sequence[str] = SUGGESTED_TYPES,
+     canonical: bool = False,
++    exclude: Optional[Sequence[str]] = None,
+ ) -> int:
+     """How many reference fluorophores could still be added to a panel.
+ 
+@@ -1276,7 +1373,7 @@ def eligible_fluorophore_count(
+     try:  # which candidates are finite does not depend on the metric
+         return len(_suggestion_pool(
+             sim_df, sim_names, det_map, panel_fluors, aliases, types, allowed_types,
+-            canonical,
++            canonical, exclude=exclude,
+         )["pool"])
+     except ValueError:
+         return 0
+@@ -1294,29 +1391,33 @@ def suggest_additions(
+     allowed_types: Sequence[str] = SUGGESTED_TYPES,
+     canonical: bool = False,
+     metric: str = DEFAULT_METRIC,
++    exclude: Optional[Sequence[str]] = None,
+ ) -> dict:
+     """Best sets of `n` extra fluorophores to add to an existing panel.
+ 
+     Candidates are all fluorophores of the reference matrix that the panel
+     does not use yet (only those of an allowed Type, when `types` is given,
+     so dyes and fluorescent proteins are not suggested as antibody labels).
+-    Sets are ranked by the `metric` score of the panel plus the new
++    `exclude` leaves fluorophores out of the candidates (names, `*` as a
++    wildcard, matching alias spellings too); the sets are then the best of
++    what is left. Sets are ranked by the `metric` score of the panel plus the new
+     fluorophores. This is exact: a partial set whose lower bound on the final
+     score (see `_Metric.lower_bound`) is already worse than the current top_n
+     is skipped. (The best n+1 set does not always contain the best n set, so
+     adding one at a time would not be exact.)
+ 
+-    Returns {"metric", "base_complexity", "candidates", "combinations", "suggestions":
+-    [{"fluors", "matrix_complexity", "values"}]}, where `candidates` is the
+-    number of eligible fluorophores, `combinations` is how many `n`-sized sets
+-    they form, and `values` is the similarity matrix of the panel followed by
+-    the new fluorophores.
++    Returns {"metric", "base_complexity", "candidates", "combinations", "excluded",
++    "suggestions": [{"fluors", "matrix_complexity", "values"}]}, where `candidates`
++    is the number of eligible fluorophores (after the exclusions), `combinations`
++    is how many `n`-sized sets they form, `excluded` is [{"pattern", "removed", "names"}]
++    for each exclusion, and `values` is the similarity matrix of the panel
++    followed by the new fluorophores.
+     """
+     if not 1 <= n <= MAX_SUGGESTED:
+         raise ValueError(f"Choose between 1 and {MAX_SUGGESTED} fluorophores to add.")
+     context = _suggestion_pool(
+         sim_df, sim_names, det_map, panel_fluors, aliases, types, allowed_types,
+-        canonical, metric,
++        canonical, metric, exclude,
+     )
+     panel = context["panel"]
+     base = context["base"]
+@@ -1326,10 +1427,9 @@ def suggest_additions(
+     single_complexity = context["single_complexity"]
+ 
+     if len(pool) < n:
+-        raise ValueError(
+-            f"Only {len(pool)} suitable fluorophores are left in the reference "
+-            f"matrix to add."
+-        )
++        where = ("after leaving out the excluded ones" if context["excluded"]
++                 else "in the reference matrix to add")
++        raise ValueError(f"Only {len(pool)} suitable fluorophores are left {where}.")
+ 
+     found: List[Tuple[float, Tuple[str, ...]]] = []
+     builder = _SetComplexity(context["M"], range(len(panel)), n, metric)
+@@ -1379,6 +1479,7 @@ def suggest_additions(
+         "base_complexity": base_complexity,
+         "candidates": len(pool),
+         "combinations": math.comb(len(pool), n),
++        "excluded": context["excluded"],
+         "suggestions": suggestions,
+     }
+ 
+diff --git a/README.md b/README.md
+index 124099c..788204a 100644
+--- a/README.md
++++ b/README.md
+@@ -14,7 +14,8 @@ The tool is hosted online at https://samesalamander5710.github.io/PanelAssigner/
+ - Add fluorophores to penalize overlap with (for when you want to add onto an existing panel, avoid autofluorescence, or stain labelled/tagged cells)
+ - Detector-based substitution for fluorophores not in the reference matrix
+ - Similarity matrix plot of any result panel (WebUI only), below the results
+-- Suggests the best 1-5 extra fluorophores to add to a chosen result panel (WebUI; `suggest_additions` in Python), ranked by the resulting complexity
++- Suggests the best 1-5 extra fluorophores to add to a chosen result panel (WebUI; `suggest_additions` in Python), ranked by the resulting complexity, shown as a table with a column per suggestion
++- Fluorophores can be left out of the suggestions (not for sale, or just not wanted): type them in the WebUI, with `*` as a wildcard (`BV*`), or click the minus that appears on a suggested fluorophore (`exclude=` in Python)
+ 
+ ## Input Format
+ 
+diff --git a/docs/misc.md b/docs/misc.md
+index 14768f7..58ee799 100644
+--- a/docs/misc.md
++++ b/docs/misc.md
+@@ -91,6 +91,31 @@ A fluorophore you put in your own panel is always used, whatever its Type.
+   (the optional input) from the ones the search chose, as a green line
+   separates suggested additions. The purple line only appears when a panel
+   has fixed fluorophores.
++- Suggested additions are a table with a column per suggestion and a row per
++  added fluorophore, then the score and its change from the panel. Clicking a
++  column (or using the arrows and the number box) shows that suggestion's
++  matrix, the same way the results table selects a panel.
++- Leaving fluorophores out of the suggestions: the box above the Suggest
++  button takes one name per line, or comma, semicolon or tab separated
++  (`parse_exclusions`; `parseExclusions` in `index.html` does the same). They
++  are only taken out of the pool of candidates, so the suggested sets are the
++  best of what is left, as if those fluorophores were not in the reference
++  matrix (`exclude=` of `suggest_additions`). Fluorophores of the panel itself
++  are never affected. Names ignore case, spaces and slashes. `*` stands for any
++  characters, anywhere: `BV*`, `PE-*`, `*605`. A pattern is compared with
++  every spelling of a fluorophore: its canonical name and what each alias
++  rule gives for it, so `BV*` and `Brilliant Violet*` both leave out BV421,
++  and `AF700` leaves out Alexa Fluor 700. The flip side is that a pattern can
++  reach a fluorophore through an unusual spelling (`R*` also takes the "R-PE-"
++  forms of the PE tandems). After Suggest, the note under the box names what
++  each pattern removed (hover for the full list) and warns about a pattern
++  that matched nothing, which is usually a typo.
++- A minus appears on a suggested fluorophore when the pointer is on it (when it
++  has keyboard focus, and always on touch screens). Clicking it adds the
++  name to the box; it is struck through in the table, and a bar offers "Suggest
++  again", because the suggestions on screen were made without it. Editing the
++  box has the same effect. The box keeps its text when the panels are
++  computed again or another panel is selected.
+ - Clicking a panel column in the results table selects that panel, the same
+   as typing its number in the matrix panel box. The selected column is marked
+   with a style sheet, so the table that Copy takes is unchanged. Clicks that
+diff --git a/index.html b/index.html
+index aa4822c..0335d5e 100644
+--- a/index.html
++++ b/index.html
+@@ -57,7 +57,7 @@
+     .setup { display: grid; gap: 1.25rem; grid-template-columns: minmax(0, 1fr); }
+     .after { display: grid; gap: 1.25rem; grid-template-columns: minmax(0, 1fr); }
+     @media (min-width: 1060px) { .setup { grid-template-columns: minmax(0, 1fr) 22rem; } }
+-    @media (min-width: 1360px) { .after { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; } }
++    @media (min-width: 1360px) { .after { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); align-items: start; } }
+     .card { min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); scroll-margin-top: 4.5rem; }
+     .card-head { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .75rem; padding: .65rem 1rem; border-bottom: 1px solid var(--line); }
+     .card-head h2 { margin: 0; font-size: 1.05rem; font-weight: 650; }
+@@ -135,6 +135,7 @@
+     .legend .substituted, .results-table .substituted { background: var(--substituted); }
+     .legend .unmapped, .results-table .unmapped { background: var(--unmapped); }
+     .legend .unassigned, .results-table .unassigned { background: var(--unassigned); }
++    .results-table .added { background: var(--added); }
+     .legend .swatch.fixed { width: 0; border: none; border-left: 2px solid var(--fixed); }
+     .legend .swatch.base { background: var(--base); }
+     .legend .swatch.new { background: var(--added); }
+@@ -192,8 +193,26 @@
+     .suggest-section { display: flex; flex-direction: column; gap: .75rem; min-width: 0; padding-top: .75rem; border-top: 1px solid var(--line); }
+     .suggest-title { font-weight: 650; }
+     .suggest-rows { overflow-x: auto; }
+-    .suggest-table tbody tr { cursor: pointer; }
+-    .suggest-table tbody tr.selected td { background: var(--added); }
++    /* The suggestions table has one column per suggestion, like the results table; the
++       first column counts the added fluorophores. Click a column to show its matrix. */
++    .suggest-table { width: auto; min-width: 100%; }
++    .suggest-table thead th:nth-child(n+2), .suggest-table tbody td:nth-child(n+2), .suggest-table tfoot td { cursor: pointer; min-width: 7.5rem; }
++    .suggest-table .num { text-align: right; }
++    .suggest-table td.added { position: relative; padding-right: 1.8rem; }
++    /* Minus button on a suggested fluorophore: shown on hover and keyboard focus, always on touch screens. */
++    .suggest-table .exclude-btn { position: absolute; right: 3px; top: 50%; transform: translateY(-50%); display: grid; place-items: center; width: 1.2rem; height: 1.2rem; padding: 0; border: 1px solid var(--line-strong); border-radius: 50%; background: #fff; color: var(--danger); font: 700 .95rem/1 var(--sans); opacity: 0; cursor: pointer; }
++    .suggest-table td:hover .exclude-btn, .suggest-table .exclude-btn:focus-visible { opacity: 1; }
++    .suggest-table .exclude-btn:hover:not(:disabled) { border-color: var(--danger); background: var(--danger); color: #fff; }
++    @media (hover: none) { .suggest-table .exclude-btn { opacity: 1; } }
++    .suggest-table td.excluded .fl { color: var(--muted); text-decoration: line-through; }
++    .suggest-table td.excluded .exclude-btn { display: none; }
++    .suggest-exclude { display: flex; flex-direction: column; gap: .3rem; }
++    .suggest-exclude textarea { width: 100%; min-height: 4.6rem; resize: vertical; font: 13px/18px ui-monospace, monospace; padding: 4px 6px; border: 1px solid var(--line-strong); border-radius: 4px; background: #fff; color: var(--ink); }
++    .suggest-exclude .help { margin: 0; }
++    .exclude-note { margin: 0; font-size: .85rem; color: var(--muted); }
++    .exclude-note:empty { display: none; }
++    .exclude-note.warn { color: #7a5200; }
++    .suggest-stale { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .75rem; border: 1px solid #d9a400; border-left-width: 4px; border-radius: 4px; background: #fff8e1; padding: .4rem .75rem; font-size: .88rem; }
+     .pick-row { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem 1rem; }
+     @media (max-width: 700px) {
+       .meta { text-align: left; }
+@@ -356,6 +375,12 @@ After Compute, the same metric is used to rank suggested additions.</span></span
+           <h2 id="title-extend">Extend: suggest additional fluorophores to add to the panel</h2>
+         </div>
+         <div class="card-body">
++          <div class="suggest-exclude">
++            <label for="suggest-exclude">Leave out of the suggestions (optional)</label>
++            <textarea id="suggest-exclude" rows="3" spellcheck="false" placeholder="BV*&#10;PE-Cy7&#10;Qdot 605"></textarea>
++            <p class="help">Fluorophores you cannot get or do not want, one per line or separated by commas. * stands for any characters: BV* leaves out every BV dye. A name counts with all its spellings, so Brilliant Violet 421 and BV421 are the same. You can also point at a suggested fluorophore below and click its minus.</p>
++            <p id="suggest-exclude-note" class="exclude-note" role="status"></p>
++          </div>
+           <div class="suggest-controls">
+             <div class="suggest-text">
+               <span class="suggest-sentence">Show <input id="suggest-n" type="number" value="1" min="1" max="5" title="Up to 5"> additional fluorophore(s) from a pool of <span id="suggest-pool">?</span> fluorophores to add to panel <b id="suggest-panel">1</b></span>
+@@ -367,6 +392,11 @@ After Compute, the same metric is used to rank suggested additions.</span></span
+           </div>
+           <div id="suggest-section" class="suggest-section" hidden>
+             <div id="suggest-title" class="suggest-title"></div>
++            <p class="help">Each column is one suggestion. Click a column to show its similarity matrix. Point at a fluorophore and click the minus to leave it out; then press Suggest again.</p>
++            <div id="suggest-stale" class="suggest-stale" role="status" hidden>
++              <span>The leave-out list has changed since these suggestions were made.</span>
++              <button id="suggest-again" class="small" type="button">Suggest again</button>
++            </div>
+             <div class="box"><div id="suggest-rows" class="suggest-rows"></div></div>
+             <div class="pick-row">
+               <div class="selector">
+@@ -650,6 +680,11 @@ After Compute, the same metric is used to rank suggested additions.</span></span
+       const sCount = document.getElementById('suggest-count');
+       const sCi = document.getElementById('suggest-ci');
+       const sScroll = document.getElementById('suggest-scroll');
++      const sExclude = document.getElementById('suggest-exclude');
++      const sExcludeNote = document.getElementById('suggest-exclude-note');
++      const sStale = document.getElementById('suggest-stale');
++      const suggestStyle = document.createElement('style');
++      document.head.appendChild(suggestStyle);
+       const SIM_WARN = 0.9; // pairs at or above this similarity get flagged
+       let panels = [];
+       let freeTotal = null; // antibodies of the main box, as counted by "Fit at most"
+@@ -829,14 +864,96 @@ After Compute, the same metric is used to rank suggested additions.</span></span
+         updateSuggestPool();
+         sSection.hidden = suggestion === null || suggestion.panel !== n;
+         scroll.appendChild(buildTable(panel.fluors, panel.values, null));
++        updateExclusionState();
++      }
++
++      // The leave-out box. These mirror Panel_optimized.parse_exclusions (and normalize_fluorophore),
++      // which the worker uses: entries are split on new lines, commas, semicolons and tabs, and
++      // an entry listed again (same name apart from case and spacing) counts once.
++      function nameKey(name) { return name.trim().replace(/\//g, '-').replace(/\s+/g, '').toLowerCase(); }
++      function parseExclusions(text) {
++        const seen = new Set();
++        const list = [];
++        text.split(/[\n\r,;\t]+/).forEach(function (entry) {
++          entry = entry.trim();
++          const key = nameKey(entry);
++          if (key && !seen.has(key)) { seen.add(key); list.push(entry); }
++        });
++        return list;
++      }
++      function sameList(a, b) {
++        return a.length === b.length && a.every(function (entry, i) { return nameKey(entry) === nameKey(b[i]); });
++      }
++
++      // Strike through the suggested fluorophores that the box lists by name.
++      function markExcluded() {
++        const listed = new Set(parseExclusions(sExclude.value).map(nameKey));
++        Array.prototype.forEach.call(sRows.querySelectorAll('td.added'), function (cell) {
++          cell.classList.toggle('excluded', listed.has(nameKey(cell.dataset.fluor)));
++        });
++      }
++
++      // What the box says about the suggestions on screen: what the last Suggest left out (and
++      // anything that matched nothing), or that the list has changed since and needs Suggest again.
++      function updateExclusionState() {
++        markExcluded();
++        const current = parseExclusions(sExclude.value);
++        const shown = suggestion !== null && suggestion.panel === parseInt(input.value, 10);
++        const applied = shown && sameList(suggestion.exclude || [], current);
++        sStale.hidden = !shown || applied;
++        sExcludeNote.classList.remove('warn');
++        sExcludeNote.textContent = '';
++        if (applied && current.length) {
++          const left = suggestion.excluded.filter(function (e) { return e.removed > 0; });
++          const none = suggestion.excluded.filter(function (e) { return e.removed === 0; });
++          const say = function (text) { sExcludeNote.appendChild(document.createTextNode(text)); };
++          if (left.length) {
++            say('Left out: ');
++            left.forEach(function (e, i) {
++              // Name what a pattern took, so that a wildcard that reaches further than meant shows.
++              const span = document.createElement('span');
++              span.title = e.names.join(', ');
++              const shortList = e.names.slice(0, 4).join(', ') + (e.names.length > 4 ? ', +' + (e.names.length - 4) + ' more' : '');
++              const plain = e.names.length === 1 && nameKey(e.names[0]) === nameKey(e.pattern);
++              span.textContent = plain ? e.pattern : e.pattern + ' \u2192 ' + shortList;
++              if (i) say('; ');
++              sExcludeNote.appendChild(span);
++            });
++            say('.');
++          }
++          if (none.length) {
++            say((left.length ? ' ' : '') + 'No fluorophore in the pool matches ' +
++              none.map(function (e) { return e.pattern; }).join(', ') +
++              '. Check the spelling; it may also be in the panel already.');
++            sExcludeNote.classList.add('warn');
++          }
++        } else if (!shown && current.length) {  // with suggestions on screen the bar above them says it
++          sExcludeNote.textContent = 'Applied when you press Suggest.';
++        }
++      }
++
++      function addExclusion(name) {
++        if (parseExclusions(sExclude.value).some(function (entry) { return nameKey(entry) === nameKey(name); })) return;
++        const text = sExclude.value.replace(/\s+$/, '');
++        sExclude.value = (text ? text + '\n' : '') + name;
++        sExclude.scrollTop = sExclude.scrollHeight;
++        updateExclusionState();
++      }
++
++      // Mark the selected suggestion's column. Like markSelected, this is a style sheet.
++      function markSuggestion(n) {
++        const table = '#suggest-rows .suggest-table ';
++        suggestStyle.textContent = n >= 1 ? [
++          table + 'thead th:nth-child(' + (n + 1) + ') { background: #2d6a4f; color: #fff; }',
++          table + 'tbody td:nth-child(' + (n + 1) + '), ' + table + 'tfoot td:nth-child(' + (n + 1) + ') ' +
++            '{ box-shadow: inset 2px 0 0 #2d6a4f, inset -2px 0 0 #2d6a4f; }'
++        ].join('\n') : '';
+       }
+ 
+       function showSuggestion(n) {
+         const item = suggestion && suggestion.suggestions[n - 1];
+         sScroll.textContent = '';
+-        Array.prototype.forEach.call(sRows.querySelectorAll('tbody tr'), function (row, i) {
+-          row.classList.toggle('selected', i === n - 1);
+-        });
++        markSuggestion(item ? n : 0);
+         if (!item) return;
+         const base = panels[suggestion.panel - 1];
+         const added = item.fluors.map(function (name) {
+@@ -849,6 +966,62 @@ After Compute, the same metric is used to rank suggested additions.</span></span
+         sScroll.appendChild(buildTable(base.fluors.concat(added), item.values, groups));
+       }
+ 
++      // The suggestions as a table with a column per suggestion: a row per added fluorophore,
++      // then the score and its change from the panel (A- and D-optimality are averages, so
++      // adding a fluorophore can lower them).
++      function buildSuggestTable() {
++        const list = suggestion.suggestions;
++        const label = suggestion.metric_label || metricLabel;
++        const table = document.createElement('table');
++        table.className = 'results-table suggest-table';
++        function labelled(row, text, tag, className) {
++          const cell = document.createElement(tag);
++          cell.textContent = text;
++          if (className) cell.className = className;
++          row.appendChild(cell);
++          return cell;
++        }
++        const head = table.createTHead().insertRow();
++        labelled(head, 'Added', 'th', 'num');
++        list.forEach(function (item, i) { labelled(head, 'Suggestion ' + (i + 1), 'th'); });
++
++        const body = table.createTBody();
++        for (let r = 0; r < list[0].fluors.length; r += 1) {
++          const row = body.insertRow();
++          labelled(row, String(r + 1), 'td', 'num');
++          list.forEach(function (item) {
++            const name = item.fluors[r];
++            const cell = labelled(row, '', 'td', 'added');
++            cell.dataset.fluor = name;
++            const text = document.createElement('span');
++            text.className = 'fl';
++            text.textContent = name;
++            const minus = document.createElement('button');
++            minus.type = 'button';
++            minus.className = 'exclude-btn';
++            minus.textContent = '\u2212';
++            minus.title = 'Leave ' + name + ' out of the suggestions';
++            minus.setAttribute('aria-label', minus.title);
++            cell.appendChild(text);
++            cell.appendChild(minus);
++          });
++        }
++
++        const foot = table.createTFoot();
++        const scoreRow = foot.insertRow();
++        scoreRow.className = 'ci-row';
++        labelled(scoreRow, label, 'th');
++        list.forEach(function (item) { labelled(scoreRow, item.score.toFixed(4), 'td', 'num'); });
++        const changeRow = foot.insertRow();
++        changeRow.className = 'ci-row';
++        labelled(changeRow, 'Change', 'th');
++        list.forEach(function (item) {
++          const change = item.score - suggestion.base_score;
++          labelled(changeRow, (change < 0 ? '\u2212' : '+') + Math.abs(change).toFixed(4), 'td', 'num');
++        });
++        return table;
++      }
++
+       function loadSuggestions() {
+         suggestion = null;
+         const text = sData.textContent.trim();
+@@ -861,35 +1034,17 @@ After Compute, the same metric is used to rank suggested additions.</span></span
+         sSection.hidden = suggestion === null || suggestion.panel !== parseInt(input.value, 10);
+         sRows.textContent = '';
+         sScroll.textContent = '';
++        markSuggestion(0);
+         updateSuggestPool();
++        updateExclusionState();
+         if (!suggestion) return;
+ 
++        const left = (suggestion.excluded || []).reduce(function (sum, e) { return sum + e.removed; }, 0);
+         sTitle.textContent = 'Suggested additions to panel ' + suggestion.panel + ': Best ' +
+-          suggestion.suggestions.length + ' of ' + suggestion.combinations + ' combinations';
+-        const table = document.createElement('table');
+-        table.className = 'results-table suggest-table';
+-        const head = table.createTHead().insertRow();
+-        ['#', 'Added fluorophores', suggestion.metric_label || metricLabel, 'Change'].forEach(function (text, i) {
+-          const th = document.createElement('th');
+-          th.textContent = text;
+-          if (i !== 1) th.className = 'num';
+-          head.appendChild(th);
+-        });
+-        const body = table.createTBody();
+-        suggestion.suggestions.forEach(function (item, i) {
+-          const row = body.insertRow();
+-          // A- and D-optimality are averages, so adding a fluorophore can lower them.
+-          const change = item.score - suggestion.base_score;
+-          const cells = [String(i + 1), item.fluors.join(', '), item.score.toFixed(4),
+-                         (change < 0 ? '\u2212' : '+') + Math.abs(change).toFixed(4)];
+-          cells.forEach(function (text, k) {
+-            const td = row.insertCell();
+-            td.textContent = text;
+-            if (k !== 1) td.className = 'num';
+-          });
+-          row.addEventListener('click', function () { sPick.value = i + 1; showSuggestion(i + 1); });
+-        });
+-        sRows.appendChild(table);
++          suggestion.suggestions.length + ' of ' + suggestion.combinations + ' combinations' +
++          (left ? ' (' + left + ' fluorophore' + (left === 1 ? '' : 's') + ' left out)' : '');
++        sRows.appendChild(buildSuggestTable());
++        markExcluded();
+         sCount.textContent = suggestion.suggestions.length;
+         sPick.max = suggestion.suggestions.length;
+         sPick.value = 1;
+@@ -961,6 +1116,28 @@ After Compute, the same metric is used to rank suggested additions.</span></span
+         if (n > 5) n = 5;
+         suggestInput.value = n;
+       });
++      // Clicking a column of the suggestions table shows its matrix, like the pick box does;
++      // clicking a minus adds that fluorophore to the leave-out box.
++      sRows.addEventListener('click', function (event) {
++        if (!suggestion) return;
++        const minus = event.target.closest && event.target.closest('.exclude-btn');
++        if (minus) {
++          addExclusion(minus.parentElement.dataset.fluor);
++          return;
++        }
++        const cell = event.target.closest && event.target.closest('th, td');
++        if (!cell || !sRows.contains(cell)) return;
++        const selection = window.getSelection();
++        if (selection && selection.toString()) return; // text is being selected to copy
++        const n = cell.cellIndex; // column 0 is the row number; suggestion k is column k
++        if (n < 1 || n > suggestion.suggestions.length) return;
++        sPick.value = n;
++        showSuggestion(n);
++      });
++      sExclude.addEventListener('input', updateExclusionState);
++      document.getElementById('suggest-again').addEventListener('click', function () {
++        document.getElementById('suggest-run').click();
++      });
+       new MutationObserver(loadSuggestions).observe(sData, { childList: true });
+       new MutationObserver(load).observe(data, { childList: true });
+       load();
+diff --git a/main.py b/main.py
+index 2f8b20d..6aee566 100644
+--- a/main.py
++++ b/main.py
+@@ -261,12 +261,13 @@ def suggest(event):
+         suggest_status.innerText = "Enter how many fluorophores to add (1-5)."
+         suggest_btn.disabled = False
+         return
++    exclude = document.getElementById("suggest-exclude").value  # fluorophores to leave out
+     suggest_status.innerText = "Searching..."
+-    spawn(run_suggest(panel_no, n))
++    spawn(run_suggest(panel_no, n, exclude))
+ 
+ 
+-async def run_suggest(panel_no, n):
+-    raw = await call(0, pool[0].suggest, panel_no, n)  # same worker that holds the panels
++async def run_suggest(panel_no, n, exclude):
++    raw = await call(0, pool[0].suggest, panel_no, n, exclude)  # same worker that holds the panels
+     res = json.loads(raw)
+     if res["ok"]:
+         suggest_status.innerText = ""
+diff --git a/tests/test_live_check.py b/tests/test_live_check.py
+index a82639a..b708722 100644
+--- a/tests/test_live_check.py
++++ b/tests/test_live_check.py
+@@ -110,8 +110,8 @@ class _Worker:
+     async def search(self, index, bound):
+         return await self._call("search", "1.5\n{}", SEARCH)
+ 
+-    async def suggest(self, panel, n):
+-        return await self._call("suggest", json.dumps({"ok": True, "panel": panel, "n": n}), 0.01)
++    async def suggest(self, panel, n, exclude=""):
++        return await self._call("suggest", json.dumps({"ok": True, "panel": panel, "n": n, "exclude": exclude}), 0.01)
+ 
+     async def finalize(self, results):
+         return await self._call("finalize", json.dumps({
+@@ -349,6 +349,15 @@ class LiveCheckTests(unittest.IsolatedAsyncioTestCase):
+         self.assertEqual(json.loads(self.document.getElementById("suggest-data").textContent)["panel"], 2)
+         self.assertFalse(self.document.getElementById("suggest-run").disabled)
+ 
++    async def test_suggest_passes_the_leave_out_box_to_the_worker(self):
++        self.document.getElementById("suggest-panel").textContent = "1"
++        self.document.getElementById("suggest-n").value = "2"
++        self.document.getElementById("suggest-exclude").value = "BV*\nQdot 605"
++        self.js("suggest")
++        await asyncio.sleep(0.2)
++        answer = json.loads(self.document.getElementById("suggest-data").textContent)
++        self.assertEqual(answer["exclude"], "BV*\nQdot 605")
++
+     async def test_every_handler_returns_at_once(self):
+         for handler in ("input_changed", "backbone_changed", "require_mapped_changed"):
+             self.js(handler)
+diff --git a/tests/test_suggest_exclusions.py b/tests/test_suggest_exclusions.py
+new file mode 100644
+index 0000000..f362516
+--- /dev/null
++++ b/tests/test_suggest_exclusions.py
+@@ -0,0 +1,201 @@
++"""Leaving fluorophores out of the suggestions (the "leave out" box of the WebUI).
++
++An exclusion removes fluorophores from the pool of candidates; the best sets are
++then the best of what is left, exactly as if those fluorophores did not exist.
++Names match ignoring case and spaces, `*` is a wildcard, and every spelling
++that an alias rule gives a fluorophore counts ("BV421" is "Brilliant Violet 421").
++"""
++
++import os
++import sys
++import unittest
++from pathlib import Path
++
++import numpy as np
++
++ROOT = Path(__file__).resolve().parents[1]
++if str(ROOT) not in sys.path:
++    sys.path.insert(0, str(ROOT))
++
++import Panel_optimized as P
++
++ALIASES = P.load_fluorophore_aliases(str(ROOT / "constants" / "Fluorophore_Aliases.csv"))
++NAMES = ["BV421", "BV605", "BUV395", "PE", "PE-Cy7", "FITC", "APC", "Alexa Fluor 700", "Qdot 605", "PerCP"]
++
++
++def similarity(names, seed=7):
++    """A random symmetric, strictly diagonally dominant matrix (so every set has a finite score)."""
++    rng = np.random.default_rng(seed)
++    n = len(names)
++    values = rng.uniform(0.0, 0.9, size=(n, n))
++    values = (values + values.T) / 2.0
++    np.fill_diagonal(values, 0.0)
++    values *= 0.9 / np.abs(values).sum(axis=1).max()
++    return P.SimilarityMatrix(names, names, values + np.eye(n))
++
++
++def without(sim, names, removed):
++    keep = [i for i, name in enumerate(names) if name not in removed]
++    kept = [names[i] for i in keep]
++    return P.SimilarityMatrix(kept, kept, sim.values[np.ix_(keep, keep)]), kept
++
++
++def suggest(exclude, panel=("APC",), n=2, names=NAMES, sim=None):
++    sim = sim or similarity(names)
++    return P.suggest_additions(sim, names, None, list(panel), n, top_n=5, aliases=ALIASES, exclude=exclude)
++
++
++class ParseExclusionsTest(unittest.TestCase):
++    def test_separators_and_repeats(self):
++        self.assertEqual(
++            P.parse_exclusions("BV*, PE-Cy7\nbv*;  Qdot 605\t\n\n"),
++            ["BV*", "PE-Cy7", "Qdot 605"],
++        )
++
++    def test_repeat_ignores_case_and_spacing(self):
++        self.assertEqual(P.parse_exclusions("Alexa Fluor 700\nalexafluor700"), ["Alexa Fluor 700"])
++
++    def test_empty(self):
++        self.assertEqual(P.parse_exclusions(""), [])
++        self.assertEqual(P.parse_exclusions(None), [])
++        self.assertEqual(P.parse_exclusions(" , ;\n"), [])
++
++
++class MatchingTest(unittest.TestCase):
++    def excluded(self, pattern):
++        kept, info = P._apply_exclusions(NAMES, [pattern], ALIASES)
++        self.assertEqual(info[0]["removed"], len(NAMES) - len(kept))
++        return [name for name in NAMES if name not in kept]
++
++    def test_prefix_wildcard(self):
++        self.assertEqual(self.excluded("BV*"), ["BV421", "BV605"])
++
++    def test_wildcard_reaches_alias_spellings(self):
++        self.assertEqual(self.excluded("Brilliant Violet*"), ["BV421", "BV605"])
++        self.assertEqual(self.excluded("PE-Cyanine*"), ["PE-Cy7"])
++
++    def test_exact_name_in_any_spelling(self):
++        self.assertEqual(self.excluded("bv 421"), ["BV421"])
++        self.assertEqual(self.excluded("Brilliant Violet 421"), ["BV421"])
++        self.assertEqual(self.excluded("AF700"), ["Alexa Fluor 700"])
++        self.assertEqual(self.excluded("PE-Cyanine 7"), ["PE-Cy7"])
++
++    def test_wildcard_anywhere(self):
++        self.assertEqual(self.excluded("*605"), ["BV605", "Qdot 605"])
++        self.assertEqual(self.excluded("PE*"), ["PE", "PE-Cy7", "PerCP"])  # PerCP starts with Pe too
++
++    def test_plain_name_is_not_a_prefix(self):
++        self.assertEqual(self.excluded("PE"), ["PE"])  # not PE-Cy7
++        self.assertEqual(self.excluded("BV"), [])
++
++    def test_unmatched_pattern_reports_zero(self):
++        kept, info = P._apply_exclusions(NAMES, ["Nonsense", "BV*"], ALIASES)
++        self.assertEqual([(e["pattern"], e["removed"], e["names"]) for e in info],
++                         [("Nonsense", 0, []), ("BV*", 2, ["BV421", "BV605"])])
++        self.assertEqual(len(kept), len(NAMES) - 2)
++
++
++class SuggestWithExclusionsTest(unittest.TestCase):
++    def test_nothing_excluded_changes_nothing(self):
++        plain = P.suggest_additions(similarity(NAMES), NAMES, None, ["APC"], 2, top_n=5, aliases=ALIASES)
++        same = suggest([])
++        self.assertEqual(plain["suggestions"], same["suggestions"])
++        self.assertEqual(same["excluded"], [])
++
++    def test_equals_a_reference_without_those_fluorophores(self):
++        sim = similarity(NAMES)
++        for pattern, gone in (("BV*", {"BV421", "BV605"}), ("Qdot 605", {"Qdot 605"}), ("PE*", {"PE", "PE-Cy7", "PerCP"})):
++            reduced, kept = without(sim, NAMES, gone)
++            expected = P.suggest_additions(reduced, kept, None, ["APC"], 2, top_n=5, aliases=ALIASES)
++            got = suggest([pattern], sim=sim)
++            self.assertEqual(
++                [(s["fluors"], round(s["matrix_complexity"], 9)) for s in got["suggestions"]],
++                [(s["fluors"], round(s["matrix_complexity"], 9)) for s in expected["suggestions"]],
++                pattern,
++            )
++            self.assertEqual(got["candidates"], expected["candidates"])
++            self.assertEqual(got["combinations"], expected["combinations"])
++
++    def test_nothing_excluded_is_suggested(self):
++        got = suggest(["BV*", "Qdot 605"], n=3)
++        suggested = {f for s in got["suggestions"] for f in s["fluors"]}
++        self.assertFalse(suggested & {"BV421", "BV605", "Qdot 605"})
++        self.assertEqual([(e["pattern"], e["names"]) for e in got["excluded"]],
++                         [("BV*", ["BV421", "BV605"]), ("Qdot 605", ["Qdot 605"])])
++
++    def test_panel_fluorophores_are_never_filtered(self):
++        sim = similarity(NAMES)
++        panel = ["BV421", "APC"]
++        plain = P.suggest_additions(sim, NAMES, None, panel, 1, top_n=5, aliases=ALIASES)
++        got = P.suggest_additions(sim, NAMES, None, panel, 1, top_n=5, aliases=ALIASES, exclude=["BV*"])
++        self.assertEqual(plain["base_complexity"], got["base_complexity"])
++        self.assertEqual([(e["pattern"], e["names"]) for e in got["excluded"]],
++                         [("BV*", ["BV605"])])  # BV421 is in the panel, so it was never a candidate
++        self.assertTrue(all(s["fluors"][0] != "BV605" for s in got["suggestions"]))
++
++    def test_too_few_left(self):
++        with self.assertRaisesRegex(ValueError, "after leaving out"):
++            suggest(["*"], n=1)
++        with self.assertRaisesRegex(ValueError, "Only 0"):
++            suggest(["*"], n=2)
++
++    def test_pool_count_follows_the_exclusions(self):
++        sim = similarity(NAMES)
++        args = (sim, NAMES, None, ["APC"])
++        all_of_them = P.eligible_fluorophore_count(*args, aliases=ALIASES)
++        fewer = P.eligible_fluorophore_count(*args, aliases=ALIASES, exclude=["BV*"])
++        self.assertEqual(all_of_them - fewer, 2)
++
++
++class WorkerSuggestTest(unittest.TestCase):
++    """worker.suggest: the text of the box goes in, what was applied comes back."""
++
++    @classmethod
++    def setUpClass(cls):
++        cwd = os.getcwd()
++        os.chdir(ROOT)  # worker.py reads ./constants at import time
++        try:
++            import worker
++        finally:
++            os.chdir(cwd)
++        cls.worker = worker
++        cls.panel = ["BUV395", "BV650", "BUV805", "PE-Cy7", "FITC", "PE", "APC-Fire 750"]
++
++    def setUp(self):
++        self.worker.STATE["panel_labels"] = [self.panel]
++        self.worker.STATE["metric"] = "a_optimality"
++
++    def run_suggest(self, exclude):
++        import json
++        return json.loads(self.worker.suggest(1, 2, exclude))
++
++    def test_no_exclusions(self):
++        result = self.run_suggest("")
++        self.assertTrue(result["ok"], result)
++        self.assertEqual(result["exclude"], [])
++        self.assertEqual(result["excluded"], [])
++
++    def test_wildcard_with_aliases(self):
++        free = self.run_suggest("")
++        first = free["suggestions"][0]["fluors"][0]
++        prefix = first[:2]  # e.g. "RB" of "RB705": a wildcard that takes the best pick away
++        result = self.run_suggest(f"{prefix}*\nBrilliant Violet*, nonsense")
++        self.assertTrue(result["ok"], result)
++        picked = [f for s in result["suggestions"] for f in s["fluors"]]
++        self.assertFalse([f for f in picked if f.lower().startswith(prefix.lower()) or f.startswith("BV")], picked)
++        self.assertEqual(result["exclude"], [f"{prefix}*", "Brilliant Violet*", "nonsense"])
++        removed = {e["pattern"]: e for e in result["excluded"]}
++        self.assertIn(first, removed[f"{prefix}*"]["names"])
++        self.assertGreater(removed["Brilliant Violet*"]["removed"], 0)  # an alias spelling
++        self.assertTrue(all(n.startswith("BV") for n in removed["Brilliant Violet*"]["names"]))
++        self.assertEqual(removed["nonsense"]["removed"], 0)
++        self.assertLess(result["candidates"], free["candidates"])
++
++    def test_error_when_nothing_is_left(self):
++        result = self.run_suggest("*")
++        self.assertFalse(result["ok"])
++        self.assertIn("left", result["error"])
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/worker.py b/worker.py
+index 296bd40..537ec03 100644
+--- a/worker.py
++++ b/worker.py
+@@ -383,13 +383,16 @@ def finalize(results_json):
+     })
+ 
+ 
+-def suggest(panel_no, n=1):
++def suggest(panel_no, n=1, exclude=""):
+     """Best `n` fluorophores to add to result panel `panel_no` (1-based).
+ 
+-    Needs finalize() to have run on this worker. The names go back as JSON and
+-    the page inserts them as text.
++    `exclude` is the text of the "leave out" box: fluorophores that must not be
++    suggested, one per line or comma separated, `*` as a wildcard (see
++    Panel_optimized.parse_exclusions). Needs finalize() to have run on this
++    worker. The names go back as JSON and the page inserts them as text.
+     """
+     try:
++        patterns = P.parse_exclusions(exclude)
+         panels = STATE.get("panel_labels")
+         if not panels:
+             raise ValueError("Compute panels first.")
+@@ -400,9 +403,12 @@ def suggest(panel_no, n=1):
+             REF_SIM, REF_NAMES, REF_DET, panels[panel_no - 1], n, top_n=5,
+             aliases=ALIASES, types=REF_TYPES, canonical=True,
+             metric=STATE["metric"],  # the metric the panels were ranked by
++            exclude=patterns,
+         )
+         return json.dumps({
+             "ok": True, "panel": panel_no, "n": n,
++            "exclude": patterns,  # as applied; the page compares it with the box
++            "excluded": result["excluded"],  # [{"pattern", "removed"}] for each
+             "metric_label": P.get_metric(STATE["metric"]).label,
+             "base_score": result["base_complexity"],
+             "candidates": result["candidates"],
