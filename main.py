@@ -25,6 +25,12 @@ live = {"wanted": 0, "running": False, "gen": 0, "since": 0}
 # this is kept as a precaution). So Compute leaves such a worker to join in later
 # instead of waiting for it.
 busy = {}
+# Worker 0 holds the panels that Suggest reads, and Compute rebuilds them there (setup,
+# then finalize). So only one of the two runs at a time: the button of the other is
+# disabled meanwhile. Without this, a Compute started during a slow Suggest left worker 0
+# out of the search (it was busy), then sent it finalize with the previous run's data, on
+# top of the Suggest still running there.
+active = {"compute": False, "suggest": False}
 
 
 def spawn(coro):
@@ -208,7 +214,11 @@ def compute(event):
     # Compute starts at once. A live check that is waiting for typing to pause ends now
     # (run_btn is disabled when it wakes), and the answer of one that is already with a
     # worker is dropped; the summary is refreshed when Compute is done.
+    if active["suggest"]:  # the button is disabled meanwhile; this is only a guard
+        return
+    active["compute"] = True
     run_btn.disabled = True
+    suggest_btn.disabled = True  # Suggest reads what this Compute is about to replace
     spawn(run_compute())
 
 
@@ -246,12 +256,18 @@ async def run_compute():
         out.innerHTML = res["html"]
         subs.innerHTML = res["substitutions_html"]
         matrix_data.textContent = res["matrices_json"]
+    active["compute"] = False
     run_btn.disabled = False
+    suggest_btn.disabled = False
     refresh_live(True)  # the text may have been edited while computing; and this is the refresh after Compute
 
 
 @when("click", "#suggest-run")
 def suggest(event):
+    if not pool or active["compute"] or active["suggest"]:
+        if active["compute"]:
+            suggest_status.innerText = "Wait for Compute to finish."
+        return  # the button is disabled meanwhile; this is only a guard
     suggest_btn.disabled = True
     suggest_data.textContent = ""
     try:
@@ -262,19 +278,28 @@ def suggest(event):
         suggest_btn.disabled = False
         return
     exclude = document.getElementById("suggest-exclude").value  # fluorophores to leave out
-    suggest_status.innerText = "Searching..."
+    active["suggest"] = True
+    run_btn.disabled = True  # Compute would take worker 0 from under this Suggest
+    suggest_status.innerText = "Searching... (Compute is available again when this is done)"
     spawn(run_suggest(panel_no, n, exclude))
 
 
 async def run_suggest(panel_no, n, exclude):
-    raw = await call(0, pool[0].suggest, panel_no, n, exclude)  # same worker that holds the panels
-    res = json.loads(raw)
-    if res["ok"]:
-        suggest_status.innerText = ""
-        suggest_data.textContent = raw
-    else:
-        suggest_status.innerText = "Error: " + res["error"]
-    suggest_btn.disabled = False
+    try:
+        raw = await call(0, pool[0].suggest, panel_no, n, exclude)  # same worker that holds the panels
+        res = json.loads(raw)
+        if res["ok"]:
+            suggest_status.innerText = ""
+            suggest_data.textContent = raw
+        else:
+            suggest_status.innerText = "Error: " + res["error"]
+    except Exception as exc:  # shown here instead of leaving both buttons disabled
+        suggest_status.innerText = "Error: " + str(exc)
+    finally:
+        active["suggest"] = False
+        suggest_btn.disabled = False
+        run_btn.disabled = False
+        refresh_live(True)  # a check that was dropped while Suggest held Compute's button
 
 
 spawn(start())

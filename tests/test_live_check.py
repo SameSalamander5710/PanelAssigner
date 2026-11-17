@@ -70,6 +70,7 @@ class _Worker:
         self.fail_next = False
         self.hang_next = False
         self.full = False  # setup/search/finalize behave like a real compute
+        self.suggest_time = 0.01  # how long a suggest takes
         self.calls = []  # (name, time the call was made)
         self.never = []  # what calls that are never answered wait on; the browser keeps those alive
 
@@ -111,7 +112,7 @@ class _Worker:
         return await self._call("search", "1.5\n{}", SEARCH)
 
     async def suggest(self, panel, n, exclude=""):
-        return await self._call("suggest", json.dumps({"ok": True, "panel": panel, "n": n, "exclude": exclude}), 0.01)
+        return await self._call("suggest", json.dumps({"ok": True, "panel": panel, "n": n, "exclude": exclude}), self.suggest_time)
 
     async def finalize(self, results):
         return await self._call("finalize", json.dumps({
@@ -357,6 +358,76 @@ class LiveCheckTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0.2)
         answer = json.loads(self.document.getElementById("suggest-data").textContent)
         self.assertEqual(answer["exclude"], "BV*\nQdot 605")
+
+    def start_suggest(self, duration):
+        """Click Suggest with worker 0 taking `duration` seconds to answer."""
+        self.workers.made["w0"].suggest_time = duration
+        self.document.getElementById("suggest-panel").textContent = "1"
+        self.document.getElementById("suggest-n").value = "3"
+        self.js("suggest")
+
+    async def test_compute_is_not_started_while_a_suggest_is_out(self):
+        # Worker 0 holds the panels. A Compute that left it out of the search (it was busy)
+        # and then sent it finalize worked from the previous run's data, on top of the
+        # Suggest that was still running there; the call was never answered.
+        w0 = self.workers.made["w0"]
+        self.start_suggest(0.6)
+        await asyncio.sleep(0.05)
+        self.assertTrue(self.main["run_btn"].disabled)  # Compute cannot be clicked meanwhile
+        for worker in self.workers.made.values():
+            worker.full = True
+        before = len(self.tasks)
+        self.js("compute")  # a click that gets through anyway does nothing
+        self.assertEqual(len(self.tasks), before)
+        await asyncio.sleep(0.8)
+        self.assertFalse(self.main["run_btn"].disabled)
+        self.assertFalse(self.document.getElementById("suggest-run").disabled)
+        self.assertEqual([name for name, _ in w0.calls], ["suggest"])
+        self.assertNoOverlap()
+
+    async def test_compute_after_a_suggest_sets_up_worker_zero_before_it_finalizes(self):
+        w0 = self.workers.made["w0"]
+        self.start_suggest(0.3)
+        await asyncio.sleep(0.5)
+        await self.start_full_compute()
+        names = [name for name, _ in w0.calls]
+        self.assertEqual(names[0], "suggest")
+        self.assertIn("setup", names)
+        self.assertLess(names.index("setup"), names.index("finalize"))
+        self.assertEqual(self.document.getElementById("status").innerText[:4], "done")
+        self.assertNoOverlap()
+
+    async def test_suggest_is_not_started_while_compute_runs(self):
+        w0 = self.workers.made["w0"]
+        compute = self.start_full_compute()
+        await asyncio.sleep(0.1)
+        self.assertTrue(self.document.getElementById("suggest-run").disabled)
+        self.js("suggest")  # a click that gets through anyway does nothing
+        self.assertEqual(w0.count("suggest"), 0)
+        self.assertIn("Compute", self.document.getElementById("suggest-status").innerText)
+        await compute
+        self.assertFalse(self.document.getElementById("suggest-run").disabled)
+        self.start_suggest(0.01)
+        await asyncio.sleep(0.2)
+        self.assertEqual(w0.count("suggest"), 1)
+        self.assertNoOverlap()
+
+    async def test_a_failed_suggest_gives_both_buttons_back(self):
+        self.workers.made["w0"].fail_next = True
+        self.start_suggest(0.01)
+        await asyncio.sleep(CALL + 0.3)
+        self.assertIn("worker failed", self.document.getElementById("suggest-status").innerText)
+        self.assertFalse(self.document.getElementById("suggest-run").disabled)
+        self.assertFalse(self.main["run_btn"].disabled)
+
+    async def test_suggest_returns_the_live_check_that_it_paused(self):
+        self.start_suggest(0.05)
+        self.type("typed while suggesting")  # run_btn is disabled, so no check is made
+        await asyncio.sleep(0.4)
+        self.assertIsNone(self.shown())
+        await asyncio.sleep(CALL + 0.4)  # ... the check runs once Suggest is done
+        self.assertEqual(self.shown(), {"ok": True, "text": "typed while suggesting"})
+        self.assertNoOverlap()
 
     async def test_every_handler_returns_at_once(self):
         for handler in ("input_changed", "backbone_changed", "require_mapped_changed"):

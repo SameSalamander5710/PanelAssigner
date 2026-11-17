@@ -949,6 +949,37 @@ def prepare_search(
     }
 
 
+def _grow_matching(
+    matched: Dict[str, str], fluor: str,
+    antibodies_by_fluor: Dict[str, Sequence[str]],
+) -> Optional[Dict[str, str]]:
+    """The antibody matching (antibody -> fluorophore) of `matched` plus `fluor`.
+
+    `matched` covers every fluorophore already chosen, so a single augmenting
+    path search from `fluor` decides whether the larger set can still be
+    assigned. Returns None if it cannot. `matched` itself is not changed.
+    """
+    new = dict(matched)
+    for antibody in antibodies_by_fluor[fluor]:
+        if antibody not in new:  # a free antibody: nothing to rearrange
+            new[antibody] = fluor
+            return new
+    seen: set = set()
+
+    def augment(item: str) -> bool:
+        for antibody in antibodies_by_fluor[item]:
+            if antibody in seen:
+                continue
+            seen.add(antibody)
+            holder = new.get(antibody)
+            if holder is None or augment(holder):
+                new[antibody] = item
+                return True
+        return False
+
+    return new if augment(fluor) else None
+
+
 def seed_bound(data: dict) -> float:
     """
     Cheap upper bound on the top_n-th best complexity.
@@ -957,34 +988,55 @@ def seed_bound(data: dict) -> float:
     always reaches full size), then scores all single-fluorophore swaps. The
     top_n-th best of those real, feasible panels bounds the true top_n-th
     best. Returns inf if fewer than top_n panels were found.
+
+    Like the search, this keeps the similarity matrix and the antibody
+    matching of the set built so far and adds one fluorophore at a time,
+    instead of rebuilding both from names for every candidate.
     """
     afb, fl = data["antibodies_by_fluor"], data["all_fluors"]
     k, top_n = data["free_max_count"], data["top_n"]
-
-    def feasible(items):
-        return len(_maximum_matching(items, afb)) == len(items)
+    label_pos = data["label_pos"]
+    builder = _SetComplexity(
+        data["M"], [label_pos[f] for f in data["backbone_fluors"]], k, data["metric"]
+    )
+    rows = {f: label_pos[f] for f in fl}
 
     chosen: List[str] = []
-    while len(chosen) < k:
-        pick, pick_c = None, INF
+    in_chosen: set = set()
+    matched: Dict[str, str] = {}
+    for depth in range(k):
+        pick, pick_c, pick_matched = None, INF, None
         for f in fl:
-            if f in chosen or not feasible(chosen + [f]):
+            if f in in_chosen:
                 continue
-            c = _set_complexity(chosen + [f], data)
+            grown = _grow_matching(matched, f, afb)
+            if grown is None:
+                continue
+            builder.push(depth, rows[f])
+            c = builder.complexity(depth)
             if pick is None or c < pick_c:
-                pick, pick_c = f, c
+                pick, pick_c, pick_matched = f, c, grown
         chosen.append(pick)
+        in_chosen.add(pick)
+        matched = pick_matched
+        builder.push(depth, rows[pick])  # leave the builder holding the pick
 
-    found = {frozenset(chosen): _set_complexity(chosen, data)}
+    found = {frozenset(chosen): builder.complexity(k - 1)}
     for pos in range(k):
         rest = chosen[:pos] + chosen[pos + 1:]
+        rest_matched = {a: f for a, f in matched.items() if f != chosen[pos]}
+        for depth, f in enumerate(rest):
+            builder.push(depth, rows[f])
         for f in fl:
-            if f in chosen:
+            if f in in_chosen:
                 continue
-            cand = rest + [f]
-            key = frozenset(cand)
-            if key not in found and feasible(cand):
-                found[key] = _set_complexity(cand, data)
+            key = frozenset(rest + [f])
+            if key in found:
+                continue
+            if _grow_matching(rest_matched, f, afb) is None:
+                continue
+            builder.push(k - 1, rows[f])
+            found[key] = builder.complexity(k - 1)
     values = sorted(found.values())
     return values[top_n - 1] if len(values) >= top_n else INF
 

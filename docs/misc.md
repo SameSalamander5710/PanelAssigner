@@ -47,6 +47,14 @@ A fluorophore you put in your own panel is always used, whatever its Type.
   detector map and Type table once. `worker.py` does this at start-up and
   passes `canonical=True` to `prepare_search`, `suggest_additions` and
   `eligible_fluorophore_count`; without the flag they do it on every call.
+- `seed_bound()` (run once per worker in `setup`) keeps the similarity matrix and
+  the antibody matching of the panel it is building and adds one fluorophore at a
+  time, like the search does, instead of rebuilding both from names for every
+  candidate. It returns the same bound as the plain version (`tests/test_seed_bound.py`
+  compares them) in less than half the time on large panels.
+- Compute and Suggest never run together: worker 0 holds the panels that Suggest reads
+  and Compute rebuilds, so each button is disabled while the other runs (`active` in
+  `main.py`).
 - The panel search tries the most-overlapping fluorophores first
   (`search_order`), which cuts off more of the search tree. This changes how
   many sets are scored and pruned, not the panels found: every panel,
