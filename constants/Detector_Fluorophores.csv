@@ -33,7 +33,7 @@ B2,cFluor B520,Antibody,2
 B2,cFluor B532,Antibody,1
 B2,CFSE,Dye,unknown
 B2,FITC,Antibody,2
-B2,Fluorescein,,1
+B2,Fluorescein,Dye,1
 B2,GFP,Fluorescent Protein,unknown
 B2,Ghost Dye Blue 516,Dye,unknown
 B2,Kiravia Blue 520,Antibody,unknown
@@ -114,7 +114,7 @@ R4,Ghost Dye Red 710,Dye,unknown
 R4,R718,Antibody,unknown
 R4,redFluor 710,Antibody,unknown
 R4,Spark Red 718,Antibody,3
-R4,Vio Bright R720,Antibody,3
+R3,Vio Bright R720,Antibody,3
 R4,Vio R720,Antibody,2
 R5,ViaKrome 808,Dye,unknown
 R6,DiR,Dye,unknown
@@ -149,7 +149,7 @@ UV16,cFluor UV790,Antibody,2
 UV2,BUV395,Antibody,2
 UV2,CellTrace Blue,Dye,unknown
 UV2,cFluor UV395,Antibody,1
-UV4,FVS440UV,Dye,unknown
+UV7,FVS440UV,Dye,unknown
 UV6,Alexa Fluor 350,Antibody,1
 UV6,Calcein Blue,Dye,unknown
 UV6,Calcein Blue AM,Dye,unknown
@@ -171,7 +171,7 @@ V10,cFluor V605,Antibody,1
 V10,cFluor V610,Antibody,1
 V10,Fixable Viability Stain 575V,Dye,unknown
 V10,Qdot 605,Antibody,4
-V10,Qdot 625,Antibody,4
+UV10,Qdot 625,Antibody,4
 V10,Super Bright 600,Antibody,3
 V10,SuperNova v605,Fluorescent Protein,2
 V10,Zombie Yellow,Dye,unknown
@@ -227,7 +227,7 @@ V5,violetFluor 500,Antibody,unknown
 V6,CellTracker Violet,Dye,unknown
 V6,cFluor V515,Antibody,1
 V6,CFP,Fluorescent Protein,unknown
-V6,Qdot 525,Antibody,2
+UV7,Qdot 525,Antibody,2
 V6,Sapphire,Fluorescent Protein,unknown
 V7,Alexa Fluor 430,Antibody,2
 V7,Amethyst Orange,Antibody,unknown
@@ -238,7 +238,7 @@ V7,Ghost Dye Violet 510 & 540,Dye,unknown
 V7,Krome Orange,Antibody,unknown
 V7,LIVE/DEAD Aqua,Dye,unknown
 V7,OC515,Antibody,unknown
-V7,Qdot 545,Antibody,2
+UV8,Qdot 545,Antibody,2
 V7,V500,Antibody,2
 V7,VioGreen,Antibody,1
 V7,Zombie Aqua,Dye,unknown
@@ -250,7 +250,7 @@ V8,LIVE/DEAD Yellow,Dye,unknown
 V8,Live-or-Dye 405/545,Dye,unknown
 V8,LSSmOrange,Fluorescent Protein,unknown
 V8,Pacific Orange,Antibody,1
-V8,Qdot 565,Antibody,3
+UV9,Qdot 565,Antibody,3
 V8,Qdot 585,Antibody,3
 V8,RealViolet 544,Antibody,2
 V8,Spark Violet 538,Antibody,1
@@ -278,7 +278,7 @@ YG1,Northern Lights 557,Antibody,unknown
 YG1,OFP,Fluorescent Protein,unknown
 YG1,PE,Antibody,5
 YG1,pHrodo Red,Dye,unknown
-YG1,RealYellow 586,Antibody,4
+YG2,RealYellow 586,Antibody,4
 YG1,RFP,Fluorescent Protein,unknown
 YG1,Spark YG 570,Antibody,2
 YG1,Spark YG 581,Antibody,2
@@ -307,8 +307,8 @@ YG3,eFluor 615,Antibody,unknown
 YG3,LIVE/DEAD Red,Dye,unknown
 YG3,Live-or-Dye 594/614,Dye,unknown
 YG3,mCherry,Fluorescent Protein,unknown
-YG3,MitoTracker CMXRos Red,Dye,unknown
-YG3,MitoTracker Red,Dye,unknown
+YG2,MitoTracker CMXRos Red,Dye,unknown
+YG2,MitoTracker Red,Dye,unknown
 YG3,PE-CF594,Antibody,5
 YG3,PE-Dazzle 594,Antibody,5
 YG3,PE-DyLight 594,Antibody,4

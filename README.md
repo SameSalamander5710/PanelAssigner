@@ -2,7 +2,7 @@
 
 Simple optimizer for flow cytometry panel design. From a pool of antibody-fluorophore pairs, optimally assigns fluorophores to antibodies and ranks panel configurations by spectral complexity. 
 
-Mainly intented to optimize panel design from a constrained list of antibodies. Does NOT replace optimization based on biology and gating strategies.
+Mainly intended to optimize panel design from a constrained list of antibodies. Does NOT replace optimization based on biology and gating strategies.
 
 The tool is hosted online at https://samesalamander5710.github.io/PanelAssigner/
 
