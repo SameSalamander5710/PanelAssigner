@@ -34,8 +34,6 @@ R-Phycoerythrin,PE
 R-PE,PE
 Allophycocyanin,APC
 Peridinin Chlorophyll Protein,PerCP
-Fluorescein isothiocyanate,FITC
-Fluorescein,FITC
 Propidium Iodide,PI
 7AAD,7-AAD
 7-Aminoactinomycin D,7-AAD
@@ -70,3 +68,11 @@ RV {n},RV{n}
 Real Yellow {n},RY{n}
 RealYellow {n},RY{n}
 RY {n},RY{n}
+BB630-P2,BB630
+BB660-P2,BB660
+BB755-P,BB755
+BB790-P,BB790
+Brilliant Blue 630-P2,BB630
+Brilliant Blue 660-P2,BB660
+Brilliant Blue 755-P,BB755
+Brilliant Blue 790-P,BB790
