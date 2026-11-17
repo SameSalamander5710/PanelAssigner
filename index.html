@@ -577,13 +577,23 @@ After Compute, the same metric is used to rank suggested additions.</span></span
       const totalLabel = document.getElementById('maxfit-total');
       let wanted = null; // null = follow the total
 
+      function delimiter(line) {
+        let quoted = false, comma = false;
+        for (let i = 0; i < line.length; i++) {
+          const c = line[i];
+          if (c === '"') { quoted = !quoted; continue; }
+          if (quoted) continue;
+          if (c === '\t') return '\t';
+          if (c === ',') comma = true;
+        }
+        return comma ? ',' : ';';
+      }
       // Mirrors worker.parse_pasted: first column of every Antibody/Fluorophore row.
       function antibodies(text) {
         text = text.trim();
-        const delimiter = text.indexOf('\t') >= 0 ? '\t' : (text.indexOf(',') >= 0 ? ',' : ';');
         const names = [];
         text.split(/\r?\n/).forEach(function (line) {
-          const cells = line.split(delimiter);
+          const cells = line.split(delimiter(line));
           if (cells.length < 2) return;
           const ab = cells[0].trim(), fl = cells[1].trim();
           if (!ab || !fl) return;
@@ -600,12 +610,11 @@ After Compute, the same metric is used to rank suggested additions.</span></span
       function backboneAntibodies(text) {
         text = text.trim();
         if (!text) return [];
-        const delimiter = text.indexOf('\t') >= 0 ? '\t' : (text.indexOf(',') >= 0 ? ',' : ';');
         const names = [];
         const seenFluors = new Set();
         let auto = 0;
         text.split(/\r?\n/).forEach(function (line) {
-          const fields = line.split(delimiter)
+          const fields = line.split(delimiter(line))
             .map(function (cell) { return cell.trim(); })
             .filter(function (cell) { return cell; });
           if (!fields.length) return;

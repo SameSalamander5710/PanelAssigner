@@ -2,7 +2,6 @@
 Web Worker thread; main.py hands out search subtrees to whichever is free."""
 import csv
 import html as html_lib
-import io
 import json
 import math
 
@@ -30,12 +29,43 @@ TARGET_TASKS = 32  # more, smaller subtrees = better load balancing and pruning
 STATE = {}
 
 
+def _line_delimiter(line):
+    """Separator of one pasted row: tab, comma, else semicolon as fallback.
+
+    A separator inside a quoted field is part of the value, not a separator,
+    so a comma in a quoted name does not turn an Excel row into a CSV row.
+    """
+    quoted = False
+    has_comma = False
+    for char in line:
+        if char == '"':
+            quoted = not quoted
+        elif not quoted:
+            if char == "\t":
+                return "\t"
+            if char == ",":
+                has_comma = True
+    return "," if has_comma else ";"
+
+
+def _pasted_rows(text):
+    """Yield (line number, fields) from a pasted text, with a separator per row.
+
+    Typed CSV rows and rows pasted from Excel can then share one text box.
+    Line numbers count the lines as they stand in the box, including any
+    stripped off the top by .strip().
+    """
+    body = text.strip()
+    skipped = text[: len(text) - len(text.lstrip())].count("\n")
+    for index, line in enumerate(body.split("\n")):
+        parsed = next(csv.reader([line.rstrip("\r")], delimiter=_line_delimiter(line)), [])
+        yield skipped + index, parsed
+
+
 def parse_pasted(text, required=True):
-    """Parse pasted Antibody/Fluorophore pairs (tab, comma or semicolon separated)."""
-    text = text.strip()
-    delim = "\t" if "\t" in text else ("," if "," in text else ";")
+    """Parse Antibody/Fluorophore pairs (tab, comma or semicolon, per row)."""
     antibodies = {}
-    for row in csv.reader(io.StringIO(text), delimiter=delim):
+    for _, row in _pasted_rows(text):
         if len(row) < 2:
             continue
         ab, fl = row[0].strip(), row[1].strip()
@@ -57,13 +87,12 @@ def parse_backbone(text):
     A row with a single value is a bare fluorophore and gets an automatic
     antibody name (Avoid_1, Avoid_2, ...); rows with two values are treated as
     Antibody/Fluorophore pairs."""
-    text = (text or "").strip()
-    if not text:
+    text = text or ""
+    if not text.strip():
         return {}
-    delim = "\t" if "\t" in text else ("," if "," in text else ";")
     backbone = {}
     auto = 0
-    for row in csv.reader(io.StringIO(text), delimiter=delim):
+    for _, row in _pasted_rows(text):
         fields = [field.strip() for field in row if field.strip()]
         if not fields:
             continue
@@ -85,15 +114,9 @@ def _row_fluors(text, backbone=False):
     """[(line number, fluorophore)] for each usable row, read line by line.
 
     This follows parse_pasted (backbone=False) and parse_backbone (True), and
-    numbers the lines as they stand in the text box (the parsers do not
-    keep line numbers), so that rows can be highlighted."""
-    body = text.strip()  # as the parsers do, even where that shifts the first row's columns
-    skipped = text[: len(text) - len(text.lstrip())].count("\n")  # lines stripped off the front
-    delim = "\t" if "\t" in body else ("," if "," in body else ";")
+    numbers the lines as they stand in the text box, so rows can be highlighted."""
     rows = []
-    for index, line in enumerate(body.split("\n")):
-        number = skipped + index
-        parsed = next(csv.reader([line], delimiter=delim), None)
+    for number, parsed in _pasted_rows(text or ""):
         if not parsed:
             continue
         if backbone:
