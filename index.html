@@ -593,6 +593,7 @@ After Compute, the same metric is used to rank suggested additions.</span></span
         text = text.trim();
         const names = [];
         text.split(/\r?\n/).forEach(function (line) {
+          line = line.trimEnd(); // as worker._pasted_rows: a stray trailing tab must not pick the separator
           const cells = line.split(delimiter(line));
           if (cells.length < 2) return;
           const ab = cells[0].trim(), fl = cells[1].trim();
@@ -614,6 +615,7 @@ After Compute, the same metric is used to rank suggested additions.</span></span
         const seenFluors = new Set();
         let auto = 0;
         text.split(/\r?\n/).forEach(function (line) {
+          line = line.trimEnd();
           const fields = line.split(delimiter(line))
             .map(function (cell) { return cell.trim(); })
             .filter(function (cell) { return cell; });

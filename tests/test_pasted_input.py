@@ -72,6 +72,18 @@ class PastedInputTest(unittest.TestCase):
             "CD8": ["BV605\tPE"],
         })
 
+    def test_trailing_whitespace_does_not_pick_the_separator(self):
+        text = "CD3,BV421\t\nCD4,PE \t \nCD8\tAPC\t\nCD19,BV605\r\n"
+        self.assertEqual(self.worker.parse_pasted(text), {
+            "CD3": ["BV421"], "CD4": ["PE"], "CD8": ["APC"], "CD19": ["BV605"],
+        })
+        self.assertEqual(self.worker._row_fluors(text), [
+            (0, "BV421"), (1, "PE"), (2, "APC"), (3, "BV605"),
+        ])
+        self.assertEqual(self.worker.parse_backbone("Viability,BV421\t\nPE,\t\n"), {
+            "Viability": "BV421", "Avoid_1": "PE",
+        })
+
     def test_summary_and_setup_see_every_mixed_row(self):
         text = "CD3,BV421\nCD4\tFITC\nCD8,APC"
         info = json.loads(self.worker.summarize(text, "", ""))

@@ -58,7 +58,10 @@ def _pasted_rows(text):
     body = text.strip()
     skipped = text[: len(text) - len(text.lstrip())].count("\n")
     for index, line in enumerate(body.split("\n")):
-        parsed = next(csv.reader([line.rstrip("\r")], delimiter=_line_delimiter(line)), [])
+        # Trailing whitespace (a stray tab, spaces, the \r of CRLF) must not
+        # decide the separator of a row such as "CD3,BV421<tab>".
+        line = line.rstrip()
+        parsed = next(csv.reader([line], delimiter=_line_delimiter(line)), [])
         yield skipped + index, parsed
 
 
