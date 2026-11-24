@@ -152,6 +152,16 @@
     .results-table thead th { position: sticky; top: 0; background: #f2f2f2; z-index: 1; }
     .results-table .num { text-align: right; }
     .results-table .ci-row th, .results-table .ci-row td { background: #f2f2f2; font-weight: 600; }
+    /* Arrows under a panel's name when the same fluorophores can go to the antibodies in more
+       than one way. They are in the header cell, so the whole column still selects the panel. */
+    .results-table .alt-nav { display: block; margin-top: 1px; font-size: 11px; font-weight: 400; line-height: 1.3; white-space: nowrap; user-select: none; }
+    .results-table .alt-btn { padding: 0 5px; border: 0; border-radius: 3px; background: transparent; color: inherit; font-size: 10px; line-height: 1.3; opacity: .7; }
+    .results-table .alt-btn:hover:not(:disabled), .results-table .alt-btn:focus-visible { background: rgba(0, 0, 0, .12); opacity: 1; }
+    .results-table .alt-count { display: inline-block; min-width: 2.2em; text-align: center; font-variant-numeric: tabular-nums; }
+    /* Cells that changed when stepping to another assignment flash once. */
+    @keyframes alt-changed { from { outline-color: #c98a00; } to { outline-color: transparent; } }
+    .results-table td.changed { outline: 2px solid transparent; outline-offset: -2px; animation: alt-changed .9s ease-out; }
+    @media (prefers-reduced-motion: reduce) { .results-table td.changed { animation: none; } }
     #output .results-table thead th:nth-child(n+3), #output .results-table tbody td:nth-child(n+3), #output .results-table tfoot td { cursor: pointer; }
     .substitutions { padding: 0 1rem 1rem; font-size: .85rem; color: #333; }
     .substitutions:empty { display: none; }
@@ -338,7 +348,7 @@ After Compute, the same metric is used to rank suggested additions.</span></span
         </div>
         <button id="copy" class="small" type="button" disabled>Copy</button>
       </div>
-      <p class="click-hint">Click a panel column to show its similarity matrix (step 4) and to suggest additions (step 5).</p>
+      <p class="click-hint">Click a panel column to show its similarity matrix (step 4) and to suggest additions (step 5). When antibodies share fluorophores, a panel may be assignable in more than one way, all with the same score: use the arrows under its name to step through them.</p>
       <div class="box"><div id="output"></div></div>
       <div id="substitutions" class="substitutions"></div>
     </section>
@@ -435,6 +445,7 @@ After Compute, the same metric is used to rank suggested additions.</span></span
       const MIN_ANTIBODY_WIDTH = 72;
       const MIN_PANEL_WIDTH = 94;
       const CELL_PADDING = 14;
+      const NAV_EXTRA = 40; // the two arrow buttons beside the counter
 
       function makeMeasurer(style) {
         const span = document.createElement('span');
@@ -483,7 +494,15 @@ After Compute, the same metric is used to rank suggested additions.</span></span
           }
         }
         for (let i = 2; i < header.cells.length; i += 1) {
-          maxPanel = Math.max(maxPanel, measurer.width(header.cells[i].textContent));
+          const cell = header.cells[i];
+          const nav = cell.querySelector('.alt-nav');
+          if (!nav) {
+            maxPanel = Math.max(maxPanel, measurer.width(cell.textContent));
+          } else {
+            // the name and the arrows are on two lines: the wider one counts
+            const name = cell.firstChild ? cell.firstChild.textContent : '';
+            maxPanel = Math.max(maxPanel, measurer.width(name), measurer.width(nav.dataset.widest || nav.textContent) + NAV_EXTRA);
+          }
         }
         measurer.remove();
 
@@ -523,9 +542,18 @@ After Compute, the same metric is used to rank suggested additions.</span></span
         }).join('\n');
       }
 
+      // What Copy takes is the table as shown, without the arrows under the panel names.
+      function copyableTable(table) {
+        const clone = table.cloneNode(true);
+        Array.prototype.forEach.call(clone.querySelectorAll('.nocopy'), function (node) { node.remove(); });
+        Array.prototype.forEach.call(clone.querySelectorAll('.changed'), function (node) { node.classList.remove('changed'); });
+        return clone;
+      }
+
       async function copyResults() {
-        const table = out.querySelector('table');
-        if (!table) return;
+        const shown = out.querySelector('table');
+        if (!shown) return;
+        const table = copyableTable(shown);
         const tsv = tableToTSV(table);
         const html = table.outerHTML;
         let copied = false;
@@ -698,6 +726,8 @@ After Compute, the same metric is used to rank suggested additions.</span></span
       document.head.appendChild(suggestStyle);
       const SIM_WARN = 0.9; // pairs at or above this similarity get flagged
       let panels = [];
+      let antibodies = []; // the rows of the results table, which the assignments of panels index
+      let shown = []; // shown[n - 1]: which of panel n's assignments the table is showing
       let freeTotal = null; // antibodies of the main box, as counted by "Fit at most"
       let suggestion = null; // worker answer for the last "Suggest" click
       let metricLabel = 'Score'; // name of the metric the shown panels were ranked by
@@ -736,7 +766,7 @@ After Compute, the same metric is used to rank suggested additions.</span></span
         return 1 + Math.min(minCover(without(a)), minCover(without(b)));
       }
 
-      function showWarning(panel) {
+      function showWarning(panel, fluors) {
         warning.textContent = '';
         const pairs = [];
         for (let i = 0; i < panel.fluors.length; i++) {
@@ -755,7 +785,7 @@ After Compute, the same metric is used to rank suggested additions.</span></span
         const list = document.createElement('ul');
         pairs.forEach(function (pair) {
           const item = document.createElement('li');
-          item.textContent = label(panel.fluors[pair[0]]) + ' \u00d7 ' + label(panel.fluors[pair[1]]) + ': ' + pair[2].toFixed(2);
+          item.textContent = label(fluors[pair[0]]) + ' \u00d7 ' + label(fluors[pair[1]]) + ': ' + pair[2].toFixed(2);
           list.appendChild(item);
         });
         warning.appendChild(list);
@@ -850,6 +880,65 @@ After Compute, the same metric is used to rank suggested additions.</span></span
         suggestPool.textContent = candidates === undefined ? '?' : String(candidates);
       }
 
+      // A panel is ranked by its fluorophores, so when antibodies share fluorophores the same
+      // set can be dealt out to them in several ways, all with the same score (worker.finalize
+      // sends each as the antibody, by row of the table, of every fluorophore of the panel).
+      // The matrix keeps its order whichever one is shown; only the antibody labels follow it.
+      function assignmentCount(n) {
+        const panel = panels[n - 1];
+        return panel && panel.assignments ? panel.assignments.length : 0;
+      }
+
+      function countText(n) {
+        return (shown[n - 1] + 1) + '/' + assignmentCount(n) + (panels[n - 1].more_assignments ? '+' : '');
+      }
+
+      function shownFluors(n) {
+        const panel = panels[n - 1];
+        const assignment = assignmentCount(n) ? panel.assignments[shown[n - 1]] : null;
+        return panel.fluors.map(function (f, j) {
+          return assignment ? Object.assign({}, f, { antibody: antibodies[assignment[j]] }) : f;
+        });
+      }
+
+      // Write the shown assignment of panel n into its column of the results table, the way
+      // worker.finalize writes a cell. With flash, cells that changed light up for a moment.
+      function paintAssignment(n, flash) {
+        const panel = panels[n - 1];
+        const table = results.querySelector('.results-table');
+        if (!panel || !table || !assignmentCount(n)) return;
+        const holder = {}; // row of the table (an antibody) -> the fluorophore it gets
+        panel.assignments[shown[n - 1]].forEach(function (row, j) { holder[row] = panel.fluors[j]; });
+        Array.prototype.forEach.call(table.tBodies[0].rows, function (row, r) {
+          const cell = row.cells[n + 1]; // columns: #, Antibody, Panel 1, ...
+          if (!cell) return;
+          const f = holder[r];
+          const text = f ? f.name : '';
+          const changed = cell.textContent !== text;
+          const notes = [];
+          if (f && f.backbone) notes.push('backbone');
+          if (f && f.status === 'unmapped') notes.push('unmapped');
+          else if (f && f.status === 'substituted') notes.push('substituted: ' + f.note);
+          const title = f ? notes.join('; ') : 'unassigned';
+          cell.className = f ? (f.status || 'assigned') : 'unassigned';
+          cell.textContent = text;
+          if (title) cell.title = title; else cell.removeAttribute('title');
+          if (changed && flash) {
+            void cell.offsetWidth; // so that the flash starts again if it is still running
+            cell.classList.add('changed');
+          }
+        });
+        const counter = table.tHead.rows[0].cells[n + 1].querySelector('.alt-count');
+        if (counter) counter.textContent = countText(n);
+      }
+
+      function stepAssignment(n, direction) {
+        const total = assignmentCount(n);
+        if (total < 2) return;
+        shown[n - 1] = (shown[n - 1] + direction + total) % total;
+        paintAssignment(n, true);
+      }
+
       // Mark the selected panel's column in the results table. This is a style
       // sheet, not a class on the cells, so the table that "Copy" takes is unchanged.
       function markSelected(n) {
@@ -867,8 +956,9 @@ After Compute, the same metric is used to rank suggested additions.</span></span
         warning.hidden = true;
         markSelected(panel ? n : 0);
         if (!panel) return;
-        showWarning(panel);
-        ci.textContent = metricLabel + ': ' + (panel.score === null ? 'inf' : panel.score.toFixed(4));
+        showWarning(panel, shownFluors(n));
+        ci.textContent = metricLabel + ': ' + (panel.score === null ? 'inf' : panel.score.toFixed(4)) +
+          (assignmentCount(n) > 1 ? ' \u00b7 assignment ' + (shown[n - 1] + 1) + ' of ' + assignmentCount(n) + (panel.more_assignments ? '+' : '') : '');
 
         fixedKey.hidden = !hasFixedEdge(panel.fluors);
         suggestPanel.textContent = n;
@@ -1064,16 +1154,19 @@ After Compute, the same metric is used to rank suggested additions.</span></span
 
       function load() {
         panels = [];
+        antibodies = [];
         freeTotal = null;
         const text = data.textContent.trim();
         if (text) {
           try {
             const parsed = JSON.parse(text);
             panels = parsed.panels || [];
+            antibodies = parsed.antibodies || [];
             freeTotal = parsed.free_total === undefined ? null : parsed.free_total;
             metricLabel = parsed.metric_label || 'Score';
           } catch (error) { panels = []; }
         }
+        shown = panels.map(function () { return 0; }); // the table starts on each first assignment
         sData.textContent = '';
         loadSuggestions();
         section.hidden = panels.length === 0;
@@ -1088,14 +1181,22 @@ After Compute, the same metric is used to rank suggested additions.</span></span
         if (!panels.length) return;
         const cell = event.target.closest && event.target.closest('.results-table th, .results-table td');
         if (!cell || !results.contains(cell)) return;
-        const selection = window.getSelection();
-        if (selection && selection.toString()) return; // text is being selected to copy
         let column = 0; // the cell's column, counting colspans: #, Antibody, Panel 1, ...
         for (let c = cell.previousElementSibling; c; c = c.previousElementSibling) column += c.colSpan;
         const n = column - 1;
         if (cell.colSpan !== 1 || n < 1 || n > panels.length) return;
+        const arrow = event.target.closest && event.target.closest('.alt-btn');
+        if (arrow) {
+          stepAssignment(n, parseInt(arrow.dataset.step, 10)); // and select the panel it belongs to
+        } else {
+          const selection = window.getSelection();
+          if (selection && selection.toString()) return; // text is being selected to copy
+        }
         input.value = n;
         render(n);
+      });
+      results.addEventListener('animationend', function (event) {
+        if (event.target.classList) event.target.classList.remove('changed');
       });
 
       input.addEventListener('input', function () {

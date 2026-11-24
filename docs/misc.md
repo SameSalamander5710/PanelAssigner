@@ -124,6 +124,34 @@ A fluorophore you put in your own panel is always used, whatever its Type.
   again", because the suggestions on screen were made without it. Editing the
   box has the same effect. The box keeps its text when the panels are
   computed again or another panel is selected.
+- Several assignments per panel: the score depends only on the set of
+  fluorophores, so antibodies that share two or more fluorophores can swap
+  them without changing it (`CD45` and `CD11b`, both `FITC` or `BV421`, give
+  two assignments of the same panel). `panel_assignments(data, panel)` lists
+  every way to give the panel's fluorophores to distinct antibodies. With
+  "fit at most", which antibodies are left out varies as well; the fixed
+  backbone never does. The first is the one the search reports
+  (`panel["assignments"]`), the others follow in input order (the first
+  antibody's first-listed fluorophore first). At most `MAX_ALTERNATIVES` (200)
+  are kept per panel, because the number can explode (6 antibodies that share
+  6 fluorophores have 720); the count is then shown as `200+`. The listing
+  keeps a matching of the fluorophores still to place and only follows moves
+  that can be completed, so it takes time per assignment found, not per
+  possible assignment (a few milliseconds for 200 in CPython, on panels of up
+  to 25 antibodies). It runs in `finalize` for the shown panels only, not in
+  the search. `find_best_panels` does not call it: its `ranked_panels` keep
+  the one assignment they always had.
+  A panel with more than one gets arrows and a counter under its name in the
+  results table; ordinary results look as before. Stepping (it wraps around)
+  rewrites that column of the table and selects the panel, and the line
+  above the matrix names the assignment (`A-optimality: 1.0000 · assignment 2
+  of 24`) and the antibody labels in its warnings follow it. The matrix itself
+  keeps its order, so it does not reshuffle. Each assignment goes to the page
+  as a list of table rows, one per fluorophore of the panel, in the
+  `assignments` of `matrices_json` (`antibodies` names the rows).
+  `_result_cell` (`worker.py`) and `paintAssignment` (`index.html`) must give
+  the same cell. The arrows are marked `nocopy`, and Copy takes the table as
+  shown, so it copies the assignment on screen.
 - Clicking a panel column in the results table selects that panel, the same
   as typing its number in the matrix panel box. The selected column is marked
   with a style sheet, so the table that Copy takes is unchanged. Clicks that

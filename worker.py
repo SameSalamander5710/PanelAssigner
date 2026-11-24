@@ -281,6 +281,56 @@ def search(i, bound="inf"):
     return head + "\n" + json.dumps([out, evaluated, pruned])
 
 
+def _result_cell(panel, antibody):
+    """The table cell of `antibody` in `panel` (its fluorophore, or unassigned).
+
+    The page repaints these cells when it steps to another assignment
+    (`paintAssignment` in index.html); the two must give the same cell.
+    """
+    if antibody not in panel["assignments"]:
+        return '<td class="unassigned" title="unassigned"></td>'
+    fl = panel["assignments"][antibody]
+    titles = []
+    if antibody in panel.get("backbone", {}):
+        titles.append("backbone")
+    if fl in panel["unmapped_fluors"]:
+        cls = "unmapped"
+        titles.append("unmapped")
+    elif fl in panel["substitutions"]:
+        sub = html_lib.escape(panel["substitutions"][fl])
+        cls = "substituted"
+        titles.append(f"substituted: {sub}")
+    else:
+        cls = "assigned"
+    title = f' title="{"; ".join(titles)}"' if titles else ""
+    return f'<td class="{cls}"{title}>{html_lib.escape(str(fl), quote=False)}</td>'
+
+
+def _assignment_stepper(panel_no, count, more):
+    """The arrows under a panel's name that step through its assignments.
+
+    Empty for a panel with a single assignment, so ordinary results look as they
+    always did. The page (index.html) wires the buttons up and keeps the
+    counter; `nocopy` keeps this out of what Copy takes. `more` means that the
+    search for assignments stopped at a limit, so the count is a minimum.
+    """
+    if count < 2:
+        return ""
+    plus = "+" if more else ""
+    ways = f"at least {count}" if more else str(count)
+    return (
+        f'<span class="alt-nav nocopy" data-widest="{count}/{count}{plus}" '
+        f'title="Same fluorophores, same score: {ways} ways to give them to the antibodies. '
+        'Step through them.">'
+        f'<button type="button" class="alt-btn" data-step="-1" '
+        f'aria-label="Previous assignment of panel {panel_no}">&#9664;</button>'
+        f'<span class="alt-count" aria-live="polite">1/{count}{plus}</span>'
+        f'<button type="button" class="alt-btn" data-step="1" '
+        f'aria-label="Next assignment of panel {panel_no}">&#9654;</button>'
+        "</span>"
+    )
+
+
 def finalize(results_json):
     """Merge all subtree results and format them (run on one worker only)."""
     results = json.loads(results_json)
@@ -295,14 +345,29 @@ def finalize(results_json):
 
     # One similarity matrix per panel for the plot below the results. Names go
     # out as JSON; the page inserts them as text, never as HTML.
+    #
+    # A panel is ranked by its fluorophores; when antibodies share fluorophores
+    # the same set can be dealt out to them in several ways, all with this
+    # score. Each way goes out as a list that gives, for each fluorophore of
+    # the panel (same order as "fluors"), the index of its antibody in
+    # "antibodies"; the first is the one the table shows. The matrix keeps the
+    # order of the first, so it does not reshuffle when the page steps through.
+    antibody_index = {ab: i for i, ab in enumerate(STATE["data"]["original_order"])}
     matrices = []
     for complexity, _, panel in best:
         labels = list(panel["assignments"].values())  # same order as the table
         antibody_of = {fl: ab for ab, fl in panel["assignments"].items()}
         backbone_fluors = set(panel.get("backbone", {}).values())
         matrix = P.panel_similarity_matrix(STATE["data"], labels)
+        alternatives, more = P.panel_assignments(STATE["data"], panel)
+        assignments = []
+        for alternative in alternatives:
+            holder = {fl: ab for ab, fl in alternative.items()}
+            assignments.append([antibody_index[holder[fl]] for fl in labels])
         matrices.append({
             "score": complexity if math.isfinite(complexity) else None,
+            "assignments": assignments,
+            "more_assignments": more,
             "candidates": P.eligible_fluorophore_count(
                 REF_SIM, REF_NAMES, REF_DET, labels, ALIASES, REF_TYPES,
                 canonical=True,
@@ -325,31 +390,14 @@ def finalize(results_json):
         '<table class="results-table"><thead><tr>',
         '<th class="num">#</th><th>Antibody</th>',
     ]
-    for i in range(1, len(best) + 1):
-        parts.append(f"<th>Panel {i}</th>")
+    for i, shown in enumerate(matrices, 1):
+        parts.append(f"<th>Panel {i}{_assignment_stepper(i, len(shown['assignments']), shown['more_assignments'])}</th>")
     parts.append("</tr></thead><tbody>")
 
     for row_no, ab in enumerate(STATE["data"]["original_order"], 1):
         parts.append(f'<tr><td class="num">{row_no}</td><td>{esc(ab)}</td>')
         for _, _, panel in best:
-            if ab in panel["assignments"]:
-                fl = panel["assignments"][ab]
-                titles = []
-                if ab in panel.get("backbone", {}):
-                    titles.append("backbone")
-                if fl in panel["unmapped_fluors"]:
-                    cls = "unmapped"
-                    titles.append("unmapped")
-                elif fl in panel["substitutions"]:
-                    sub = html_lib.escape(panel["substitutions"][fl])
-                    cls = "substituted"
-                    titles.append(f"substituted: {sub}")
-                else:
-                    cls = "assigned"
-                title = f' title="{"; ".join(titles)}"' if titles else ""
-                parts.append(f'<td class="{cls}"{title}>{esc(fl)}</td>')
-            else:
-                parts.append('<td class="unassigned" title="unassigned"></td>')
+            parts.append(_result_cell(panel, ab))
         parts.append("</tr>")
 
     label = P.get_metric(STATE["metric"]).label
@@ -404,6 +452,7 @@ def finalize(results_json):
         "substitutions_html": "".join(substitution_parts),
         "matrices_json": json.dumps({"total": STATE["total"],
                                      "free_total": STATE["free_total"], "panels": matrices,
+                                     "antibodies": STATE["data"]["original_order"],
                                      "metric": STATE["metric"], "metric_label": label},
                                     allow_nan=False),
     })

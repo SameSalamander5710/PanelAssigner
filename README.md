@@ -32,7 +32,7 @@ The WebUI's "Load example panel" button uses `constants/Example_Panel.csv` and `
 ## Output
 
 Each result includes:
-- **Assignments**: antibody-to-fluorophore mappings
+- **Assignments**: antibody-to-fluorophore mappings. Panels are ranked by their set of fluorophores, so when antibodies share fluorophores the same panel can be assigned in several ways, all with the same score. The WebUI lists them under the panel's name (arrows, `2/24`; up to 200 per panel, shown as `200+` beyond that)
 - **Score** (A-optimality, D-optimality, E-optimality or condition index, as chosen): lower values indicate less spectral overlap
 - **Similarity matrix**: similarity matrix of result panels
 

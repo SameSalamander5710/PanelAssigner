@@ -939,6 +939,7 @@ def prepare_search(
         "max_possible": max_possible,
         "free_max_count": free_max_count,
         "antibodies_by_fluor": antibodies_by_fluor,
+        "options": options,  # antibody -> its fluorophores, in the order they were listed
         "original_order": original_order,
         "free_original_order": free_original_order,
         "backbone_assignments": backbone,
@@ -1220,6 +1221,117 @@ def search_subtree(data: dict, task: tuple, bound: float = INF):
     else:
         search(start, chosen, matched)
     return best, evaluated, pruned
+
+
+MAX_ALTERNATIVES = 200  # assignments kept per panel; a panel with more is reported as "more"
+
+
+def panel_assignments(
+    data: dict, panel: dict, limit: int = MAX_ALTERNATIVES
+) -> Tuple[List[Dict[str, str]], bool]:
+    """Every way to give a panel's fluorophores to antibodies: (assignments, more).
+
+    A panel is ranked by its set of fluorophores, and the score does not depend
+    on which antibody carries which fluorophore, so each way of dealing the same
+    fluorophores out to distinct antibodies is an equally good panel. With
+    antibodies that share two or more fluorophores there are several; and when
+    the search is limited ("fit at most"), which antibodies are left out can
+    differ too. The fixed backbone is the same in all of them.
+
+    Each assignment has the form of `panel["assignments"]` (antibody ->
+    fluorophore, backbone first, in input order). The first is
+    `panel["assignments"]` itself; the others follow in input order: the first
+    antibody's first-listed fluorophore comes first, and an antibody left out
+    comes after those that get a fluorophore. At most `limit` are returned;
+    `more` says that there are others. Takes `data` from `prepare_search` and a
+    panel from `search_subtree`.
+
+    The search never walks into a dead end (it keeps a matching of the
+    fluorophores still to place), so the cost is per assignment found, not per
+    possible assignment.
+    """
+    if limit < 1:
+        raise ValueError("limit must be at least 1")
+    base = panel["assignments"]
+    backbone = panel.get("backbone", {})
+    wanted = frozenset(f for antibody, f in base.items() if antibody not in backbone)
+
+    # Antibodies that can take one of the panel's fluorophores, in input order.
+    items = [
+        (antibody, [f for f in data["options"][antibody] if f in wanted])
+        for antibody in data["free_original_order"]
+    ]
+    items = [(antibody, fluors) for antibody, fluors in items if fluors]
+    position = {antibody: i for i, (antibody, _) in enumerate(items)}
+    positions_of = {f: [i for i, (_, fluors) in enumerate(items) if f in fluors] for f in wanted}
+
+    def reseat(by_fluor: Dict[str, int], by_pos: Dict[int, str], fluor: str, after: int) -> bool:
+        """Seat `fluor` at a position after `after`, moving others if need be."""
+        seen: set = set()
+
+        def augment(g: str) -> bool:
+            for i in positions_of[g]:
+                if i <= after or i in seen:
+                    continue
+                seen.add(i)
+                holder = by_pos.get(i)
+                if holder is None or augment(holder):
+                    by_pos[i] = g
+                    by_fluor[g] = i
+                    return True
+            return False
+
+        return augment(fluor)
+
+    stop = limit + 1  # one more than asked for tells whether there are more
+    found: List[Dict[str, str]] = []
+    chosen: Dict[str, str] = {}
+
+    def walk(i: int, remaining: frozenset, by_fluor: Dict[str, int], by_pos: Dict[int, str]) -> None:
+        # `by_fluor` / `by_pos` match all of `remaining` to positions from i on.
+        if not remaining:
+            found.append(dict(chosen))
+            return
+        antibody, fluors = items[i]
+        for fluor in fluors:
+            if fluor not in remaining:
+                continue
+            fl, po = dict(by_fluor), dict(by_pos)
+            po.pop(fl.pop(fluor), None)
+            displaced = po.pop(i, None)  # who the matching had at this antibody
+            if displaced is not None:
+                del fl[displaced]
+                if not reseat(fl, po, displaced, i):
+                    continue
+            chosen[antibody] = fluor
+            walk(i + 1, remaining - {fluor}, fl, po)
+            del chosen[antibody]
+            if len(found) >= stop:
+                return
+        fl, po = dict(by_fluor), dict(by_pos)  # this antibody is left out
+        displaced = po.pop(i, None)
+        if displaced is not None:
+            del fl[displaced]
+            if not reseat(fl, po, displaced, i):
+                return
+        walk(i + 1, remaining, fl, po)
+
+    start_fluor = {f: position[antibody] for antibody, f in base.items() if antibody in position}
+    walk(0, wanted, start_fluor, {i: f for f, i in start_fluor.items()})
+
+    def whole(free: Dict[str, str]) -> Dict[str, str]:
+        return {
+            antibody: backbone[antibody] if antibody in backbone else free[antibody]
+            for antibody in data["original_order"]
+            if antibody in backbone or antibody in free
+        }
+
+    assignments = [whole(free) for free in found]
+    more = len(assignments) > limit
+    if base in assignments:
+        assignments.remove(base)
+    assignments.insert(0, base)
+    return assignments[:limit], more
 
 
 MAX_SUGGESTED = 5  # adding more than this at once gets slow and is rarely useful
