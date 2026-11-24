@@ -168,6 +168,13 @@
     .results-table .cmp-check { float: right; margin: 3px 0 0 .5rem; cursor: pointer; }
     .results-table td.cmp-diff { --cmp-outline: var(--compare); outline: 2px solid var(--compare); outline-offset: -2px; }
     #output .results-table thead th:nth-child(n+3), #output .results-table tbody td:nth-child(n+3), #output .results-table tfoot td { cursor: pointer; }
+    /* Plus button on a results cell: shown on hover and keyboard focus, always on touch screens. */
+    .results-table td.penalizable { position: relative; padding-right: 1.6rem; }
+    .results-table .penalize-btn { position: absolute; right: 3px; top: 50%; transform: translateY(-50%); display: grid; place-items: center; width: 1.2rem; height: 1.2rem; padding: 0; border: 1px solid var(--line-strong); border-radius: 50%; background: #fff; color: var(--selected); font: 700 .95rem/1 var(--sans); opacity: 0; cursor: pointer; }
+    .results-table .penalize-btn::before { content: "+"; }
+    .results-table td:hover .penalize-btn, .results-table .penalize-btn:focus-visible { opacity: 1; }
+    .results-table .penalize-btn:hover:not(:disabled) { border-color: var(--selected); background: var(--selected); color: #fff; }
+    @media (hover: none) { .results-table .penalize-btn { opacity: 1; } }
     .substitutions { padding: 0 1rem 1rem; font-size: .85rem; color: #333; }
     .substitutions:empty { display: none; }
     .substitutions-heading { font-weight: 600; margin-bottom: .25rem; }
@@ -718,6 +725,7 @@ After Compute, the same metric is used to rank suggested additions.</span></span
       const count = document.getElementById('matrix-count');
       const ci = document.getElementById('matrix-ci');
       const results = document.getElementById('output');
+      const backboneBox = document.getElementById('backbone');
       const selectedStyle = document.createElement('style');
       document.head.appendChild(selectedStyle);
       const compareKey = document.getElementById('cmp-key');
@@ -918,6 +926,53 @@ After Compute, the same metric is used to rank suggested additions.</span></span
         });
       }
 
+      // A plus button on a results cell adds its antibody,fluorophore pair to the
+      // penalize box. The button follows the cell when the page steps assignments.
+      function updatePenalizeButton(cell, antibody, fluor) {
+        const old = cell.querySelector('.penalize-btn');
+        if (old) old.remove();
+        cell.classList.toggle('penalizable', !!fluor);
+        if (!fluor) return;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'penalize-btn nocopy';
+        button.title = 'Add ' + antibody + ', ' + fluor + ' to fixed panel backbone';
+        button.setAttribute('aria-label', button.title);
+        button.dataset.antibody = antibody;
+        button.dataset.fluor = fluor;
+        cell.appendChild(button);
+      }
+
+      // Put the plus button on the cells of the results table as computed.
+      function decorateResultCells() {
+        const table = results.querySelector('.results-table');
+        if (!table || !table.tBodies.length) return;
+        Array.prototype.forEach.call(table.tBodies[0].rows, function (row, r) {
+          const antibody = row.cells[1] ? row.cells[1].textContent : (antibodies[r] || '');
+          for (let n = 1; n <= panels.length; n += 1) {
+            const cell = row.cells[n + 1];
+            if (cell) updatePenalizeButton(cell, antibody, cell.textContent.trim());
+          }
+        });
+      }
+
+      // Add an antibody,fluorophore pair to the penalize box as one comma separated
+      // line, unless that pair is already there.
+      function addPenalization(antibody, fluor) {
+        if (!antibody || !fluor) return;
+        const wanted = nameKey(antibody) + '\u0000' + nameKey(fluor);
+        const present = backboneBox.value.split(/\r?\n/).some(function (line) {
+          const fields = line.split(/[\t,;]/).map(function (field) { return field.trim(); })
+            .filter(function (field) { return field; });
+          return fields.length >= 2 && nameKey(fields[0]) + '\u0000' + nameKey(fields[1]) === wanted;
+        });
+        if (present) return;
+        const text = backboneBox.value.replace(/\s+$/, '');
+        backboneBox.value = (text ? text + '\n' : '') + antibody + ', ' + fluor;
+        backboneBox.scrollTop = backboneBox.scrollHeight;
+        backboneBox.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+
       // Write the shown assignment of panel n into its column of the results table, the way
       // worker.finalize writes a cell. With flash, cells that changed light up for a moment.
       function paintAssignment(n, flash) {
@@ -931,6 +986,8 @@ After Compute, the same metric is used to rank suggested additions.</span></span
           if (!cell) return;
           const f = holder[r];
           const text = f ? f.name : '';
+          const old = cell.querySelector('.penalize-btn'); // not part of the cell text
+          if (old) old.remove();
           const changed = cell.textContent !== text;
           const notes = [];
           if (f && f.backbone) notes.push('backbone');
@@ -940,6 +997,7 @@ After Compute, the same metric is used to rank suggested additions.</span></span
           cell.className = f ? (f.status || 'assigned') : 'unassigned';
           cell.textContent = text;
           if (title) cell.title = title; else cell.removeAttribute('title');
+          updatePenalizeButton(cell, antibodies[r] || (row.cells[1] ? row.cells[1].textContent : ''), f ? f.name : '');
           if (changed && flash) {
             void cell.offsetWidth; // so that the flash starts again if it is still running
             cell.classList.add('changed');
@@ -1234,11 +1292,17 @@ After Compute, the same metric is used to rank suggested additions.</span></span
         input.max = Math.max(1, panels.length);
         input.value = 1;
         render(1);
+        decorateResultCells();
       }
 
       // Clicking a panel in the results table selects it, like the panel box does.
       results.addEventListener('click', function (event) {
         if (!panels.length) return;
+        const plus = event.target.closest && event.target.closest('.penalize-btn');
+        if (plus) {
+          addPenalization(plus.dataset.antibody, plus.dataset.fluor);
+          return;
+        }
         const cell = event.target.closest && event.target.closest('.results-table th, .results-table td');
         if (!cell || !results.contains(cell)) return;
         let column = 0; // the cell's column, counting colspans: #, Antibody, Panel 1, ...
