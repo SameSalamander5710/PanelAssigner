@@ -547,6 +547,12 @@ After Compute, the same metric is used to rank suggested additions.</span></span
         const clone = table.cloneNode(true);
         Array.prototype.forEach.call(clone.querySelectorAll('.nocopy'), function (node) { node.remove(); });
         Array.prototype.forEach.call(clone.querySelectorAll('.changed'), function (node) { node.classList.remove('changed'); });
+        // The score row has no number cell: its label spans the # and Antibody columns, which
+        // pastes one cell to the left of the panel columns. Give it its own empty # cell.
+        Array.prototype.forEach.call(clone.querySelectorAll('tfoot th[colspan]'), function (label) {
+          for (let i = 1; i < label.colSpan; i += 1) label.parentNode.insertBefore(document.createElement('th'), label);
+          label.removeAttribute('colspan');
+        });
         return clone;
       }
 
