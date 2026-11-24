@@ -306,6 +306,20 @@ def _result_cell(panel, antibody):
     return f'<td class="{cls}"{title}>{html_lib.escape(str(fl), quote=False)}</td>'
 
 
+def _compare_checkbox(panel_no):
+    """The tick box at the right end of a panel's header cell.
+
+    Ticking two of them makes the page outline the cells in which those two panels
+    differ (index.html keeps the ticks and draws the outlines). Only written when
+    there is more than one panel; `nocopy` keeps it out of what Copy takes.
+    """
+    return (
+        f'<input type="checkbox" class="cmp-check nocopy" data-panel="{panel_no}" '
+        f'title="Tick two panels to outline the cells where they differ" '
+        f'aria-label="Compare panel {panel_no}">'
+    )
+
+
 def _assignment_stepper(panel_no, count, more):
     """The arrows under a panel's name that step through its assignments.
 
@@ -390,8 +404,10 @@ def finalize(results_json):
         '<table class="results-table"><thead><tr>',
         '<th class="num">#</th><th>Antibody</th>',
     ]
+    comparable = len(matrices) > 1  # two panels are needed to compare
     for i, shown in enumerate(matrices, 1):
-        parts.append(f"<th>Panel {i}{_assignment_stepper(i, len(shown['assignments']), shown['more_assignments'])}</th>")
+        box = _compare_checkbox(i) if comparable else ""
+        parts.append(f"<th>Panel {i}{box}{_assignment_stepper(i, len(shown['assignments']), shown['more_assignments'])}</th>")
     parts.append("</tr></thead><tbody>")
 
     for row_no, ab in enumerate(STATE["data"]["original_order"], 1):

@@ -237,6 +237,26 @@ class FinalizeAssignmentsTest(unittest.TestCase):
         headers = re.findall(r"<th>(Panel \d+.*?)</th>", out["html"])
         self.assertEqual([("alt-nav" in h) for h in headers], [c > 1 for c in counts])
 
+    def test_compare_box_in_every_panel_header_when_there_are_several_panels(self):
+        out, shown = self._compute("A,FITC\nA,BV421\nA,APC\nB,FITC\nB,BV421\nB,APC", top_n=3)
+        n = len(shown["panels"])
+        self.assertGreater(n, 1)
+        headers = re.findall(r"<th>(Panel \d+.*?)</th>", out["html"])
+        self.assertEqual(len(headers), n)
+        for i, header in enumerate(headers, 1):
+            # the name stays first (the page measures it); the box is part of the header cell
+            self.assertTrue(header.startswith(f"Panel {i}<input "), header)
+            self.assertEqual(header.count('type="checkbox"'), 1)
+            self.assertIn(f'data-panel="{i}"', header)
+            # and it is kept out of what Copy takes
+            self.assertRegex(header, r'<input[^>]*class="cmp-check nocopy"')
+
+    def test_no_compare_box_for_a_single_panel(self):
+        out, shown = self._compute("A,FITC\nA,BV421\nA,APC\nB,FITC\nB,BV421\nB,APC", top_n=1)
+        self.assertEqual(len(shown["panels"]), 1)
+        self.assertNotIn("cmp-check", out["html"])
+        self.assertNotIn("checkbox", out["html"])
+
     def test_more_is_marked_and_counted_as_a_minimum(self):
         fluors = list(self.worker.REF_NAMES)[:6]
         text = "\n".join(f"Ab{i},{f}" for i in range(6) for f in fluors)

@@ -14,8 +14,9 @@ The tool is hosted online at https://samesalamander5710.github.io/PanelAssigner/
 - Add fluorophores to penalize overlap with (for when you want to add onto an existing panel, avoid autofluorescence, or stain labelled/tagged cells)
 - Detector-based substitution for fluorophores not in the reference matrix
 - Similarity matrix plot of any result panel (WebUI only), below the results
+- Compare two result panels (WebUI only): with several panels, tick the box at the right end of two panel names to outline the cells in which they differ.
 - Suggests the best 1-5 extra fluorophores to add to a chosen result panel (WebUI; `suggest_additions` in Python), ranked by the resulting complexity, shown as a table with a column per suggestion
-- Fluorophores can be left out of the suggestions (not for sale, or just not wanted): type them in the WebUI, with `*` as a wildcard (`BV*`), or click the minus that appears on a suggested fluorophore (`exclude=` in Python)
+- Fluorophores can be left out of the suggestions: type them in the WebUI, with `*` as a wildcard (`BV*`), or click the minus that appears on a suggested fluorophore (`exclude=` in Python)
 
 ## Input Format
 
@@ -32,10 +33,9 @@ The WebUI's "Load example panel" button uses `constants/Example_Panel.csv` and `
 ## Output
 
 Each result includes:
-- **Assignments**: antibody-to-fluorophore mappings. Panels are ranked by their set of fluorophores, so when antibodies share fluorophores the same panel can be assigned in several ways, all with the same score. The WebUI lists them under the panel's name (arrows, `2/24`; up to 200 per panel, shown as `200+` beyond that)
+- **Assignments**: antibody-to-fluorophore mappings, with panels ranked by their set of fluorophores
 - **Score** (A-optimality, D-optimality, E-optimality or condition index, as chosen): lower values indicate less spectral overlap
 - **Similarity matrix**: similarity matrix of result panels
-
 
 ## Installation
 

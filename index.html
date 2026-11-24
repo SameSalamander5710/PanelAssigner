@@ -16,7 +16,7 @@
       --ink: #18212d; --muted: #566174; --line: #d3d9e1; --line-strong: #8f9bab;
       --brand: #16324f; --link: #0b4fa8; --focus: #1f6feb; --danger: #b00020;
       --assigned: #d9f2d9; --substituted: #cfe8ff; --unmapped: #fff3bf; --unassigned: #ffd6d6;
-      --selected: #2d6a4f; --fixed: #7b2cbf; --added: #b7e4c7; --base: #d9d9d9;
+      --selected: #2d6a4f; --fixed: #7b2cbf; --added: #b7e4c7; --base: #d9d9d9; --compare: #d9480f;
       --radius: 6px;
       --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
       --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
@@ -138,6 +138,7 @@
     .results-table .added { background: var(--added); }
     .legend .swatch.fixed { width: 0; border: none; border-left: 2px solid var(--fixed); }
     .legend .swatch.base { background: var(--base); }
+    .legend .swatch.diff { border: 2px solid var(--compare); background: #fff; }
     .legend .swatch.new { background: var(--added); }
     .legend .swatch.scale { width: 4rem; background: linear-gradient(to right, #fff, rgb(240, 138, 75)); }
     .click-hint { margin: 0; padding: .5rem 1rem 0; color: var(--muted); font-size: .85rem; }
@@ -159,9 +160,13 @@
     .results-table .alt-btn:hover:not(:disabled), .results-table .alt-btn:focus-visible { background: rgba(0, 0, 0, .12); opacity: 1; }
     .results-table .alt-count { display: inline-block; min-width: 2.2em; text-align: center; font-variant-numeric: tabular-nums; }
     /* Cells that changed when stepping to another assignment flash once. */
-    @keyframes alt-changed { from { outline-color: #c98a00; } to { outline-color: transparent; } }
+    @keyframes alt-changed { from { outline-color: #c98a00; } to { outline-color: var(--cmp-outline, transparent); } }
     .results-table td.changed { outline: 2px solid transparent; outline-offset: -2px; animation: alt-changed .9s ease-out; }
     @media (prefers-reduced-motion: reduce) { .results-table td.changed { animation: none; } }
+    /* Compare: a tick box at the right end of each panel's header cell (written by the worker when
+       there are several panels). With two ticked, the cells in which they differ get an outline. */
+    .results-table .cmp-check { float: right; margin: 3px 0 0 .5rem; cursor: pointer; }
+    .results-table td.cmp-diff { --cmp-outline: var(--compare); outline: 2px solid var(--compare); outline-offset: -2px; }
     #output .results-table thead th:nth-child(n+3), #output .results-table tbody td:nth-child(n+3), #output .results-table tfoot td { cursor: pointer; }
     .substitutions { padding: 0 1rem 1rem; font-size: .85rem; color: #333; }
     .substitutions:empty { display: none; }
@@ -345,10 +350,11 @@ After Compute, the same metric is used to rank suggested additions.</span></span
           <span class="item"><span class="swatch substituted"></span>Substituted</span>
           <span class="item"><span class="swatch unmapped"></span>Unmapped</span>
           <span class="item"><span class="swatch unassigned"></span>Unassigned</span>
+          <span id="cmp-key" class="item" hidden><span class="swatch diff"></span>Differs between the two ticked panels</span>
         </div>
         <button id="copy" class="small" type="button" disabled>Copy</button>
       </div>
-      <p class="click-hint">Click a panel column to show its similarity matrix (step 4) and to suggest additions (step 5). When antibodies share fluorophores, a panel may be assignable in more than one way, all with the same score: use the arrows under its name to step through them.</p>
+      <p class="click-hint">Click a panel column to show its similarity matrix (step 4) and to suggest additions (step 5). When antibodies share fluorophores, a panel may be assignable in more than one way, all with the same score: use the arrows under its name to step through them. With several panels, tick the box of two of them to outline the cells in which they differ.</p>
       <div class="box"><div id="output"></div></div>
       <div id="substitutions" class="substitutions"></div>
     </section>
@@ -446,6 +452,7 @@ After Compute, the same metric is used to rank suggested additions.</span></span
       const MIN_PANEL_WIDTH = 94;
       const CELL_PADDING = 14;
       const NAV_EXTRA = 40; // the two arrow buttons beside the counter
+      const CHECK_EXTRA = 26; // the compare tick box at the right end of the panel's name
 
       function makeMeasurer(style) {
         const span = document.createElement('span');
@@ -496,12 +503,13 @@ After Compute, the same metric is used to rank suggested additions.</span></span
         for (let i = 2; i < header.cells.length; i += 1) {
           const cell = header.cells[i];
           const nav = cell.querySelector('.alt-nav');
+          const extra = cell.querySelector('.cmp-check') ? CHECK_EXTRA : 0;
           if (!nav) {
-            maxPanel = Math.max(maxPanel, measurer.width(cell.textContent));
+            maxPanel = Math.max(maxPanel, measurer.width(cell.textContent) + extra);
           } else {
             // the name and the arrows are on two lines: the wider one counts
             const name = cell.firstChild ? cell.firstChild.textContent : '';
-            maxPanel = Math.max(maxPanel, measurer.width(name), measurer.width(nav.dataset.widest || nav.textContent) + NAV_EXTRA);
+            maxPanel = Math.max(maxPanel, measurer.width(name) + extra, measurer.width(nav.dataset.widest || nav.textContent) + NAV_EXTRA);
           }
         }
         measurer.remove();
@@ -547,6 +555,7 @@ After Compute, the same metric is used to rank suggested additions.</span></span
         const clone = table.cloneNode(true);
         Array.prototype.forEach.call(clone.querySelectorAll('.nocopy'), function (node) { node.remove(); });
         Array.prototype.forEach.call(clone.querySelectorAll('.changed'), function (node) { node.classList.remove('changed'); });
+        Array.prototype.forEach.call(clone.querySelectorAll('.cmp-diff'), function (node) { node.classList.remove('cmp-diff'); });
         // The score row has no number cell: its label spans the # and Antibody columns, which
         // pastes one cell to the left of the panel columns. Give it its own empty # cell.
         Array.prototype.forEach.call(clone.querySelectorAll('tfoot th[colspan]'), function (label) {
@@ -711,6 +720,7 @@ After Compute, the same metric is used to rank suggested additions.</span></span
       const results = document.getElementById('output');
       const selectedStyle = document.createElement('style');
       document.head.appendChild(selectedStyle);
+      const compareKey = document.getElementById('cmp-key');
       const fixedKey = document.getElementById('matrix-fixed-key');
       const sFixedKey = document.getElementById('suggest-fixed-key');
       const scroll = document.getElementById('matrix-scroll');
@@ -734,6 +744,7 @@ After Compute, the same metric is used to rank suggested additions.</span></span
       let panels = [];
       let antibodies = []; // the rows of the results table, which the assignments of panels index
       let shown = []; // shown[n - 1]: which of panel n's assignments the table is showing
+      let compared = []; // panels whose compare box is ticked, oldest first; never more than two
       let freeTotal = null; // antibodies of the main box, as counted by "Fit at most"
       let suggestion = null; // worker answer for the last "Suggest" click
       let metricLabel = 'Score'; // name of the metric the shown panels were ranked by
@@ -936,7 +947,48 @@ After Compute, the same metric is used to rank suggested additions.</span></span
         });
         const counter = table.tHead.rows[0].cells[n + 1].querySelector('.alt-count');
         if (counter) counter.textContent = countText(n);
+        updateComparison(); // the cells above were rewritten, and may now (not) differ from the other panel
       }
+
+      // Compare two panels: with exactly two compare boxes ticked, outline the cells of the
+      // results table in which those panels have a different fluorophore (an antibody that
+      // has one in a panel and none in the other counts). A class on the cells, not a style
+      // sheet, because it follows the rows; paintAssignment keeps it up to date and "Copy"
+      // drops it. One ticked box alone shows nothing.
+      function updateComparison() {
+        const table = results.querySelector('.results-table');
+        if (!table) return;
+        Array.prototype.forEach.call(table.querySelectorAll('td.cmp-diff'), function (cell) {
+          cell.classList.remove('cmp-diff');
+        });
+        compareKey.hidden = compared.length !== 2;
+        if (compared.length !== 2) return;
+        const a = compared[0] + 1, b = compared[1] + 1; // columns: #, Antibody, Panel 1, ...
+        Array.prototype.forEach.call(table.tBodies[0].rows, function (row) {
+          const first = row.cells[a], second = row.cells[b];
+          if (first && second && first.textContent !== second.textContent) {
+            first.classList.add('cmp-diff');
+            second.classList.add('cmp-diff');
+          }
+        });
+      }
+
+      // Ticking a box: the oldest of three ticked boxes unticks itself, so two are active at most.
+      results.addEventListener('change', function (event) {
+        const box = event.target;
+        if (!box.classList || !box.classList.contains('cmp-check')) return;
+        const n = parseInt(box.dataset.panel, 10);
+        compared = compared.filter(function (other) { return other !== n; });
+        if (box.checked) {
+          compared.push(n);
+          while (compared.length > 2) {
+            const oldest = compared.shift();
+            const other = results.querySelector('.cmp-check[data-panel="' + oldest + '"]');
+            if (other) other.checked = false;
+          }
+        }
+        updateComparison();
+      });
 
       function stepAssignment(n, direction) {
         const total = assignmentCount(n);
@@ -1173,6 +1225,8 @@ After Compute, the same metric is used to rank suggested additions.</span></span
           } catch (error) { panels = []; }
         }
         shown = panels.map(function () { return 0; }); // the table starts on each first assignment
+        compared = []; // and with no panels ticked for comparison (its boxes are new, and unticked)
+        compareKey.hidden = true;
         sData.textContent = '';
         loadSuggestions();
         section.hidden = panels.length === 0;
